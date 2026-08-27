@@ -10,11 +10,17 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
+# ========== 路径基准：全部以本文件所在目录为根，不依赖 cwd ==========
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def _P(*parts):
+    return os.path.join(_BASE_DIR, *parts)
+
+
 class StockBacktester:
     """股票回测器"""
 
     def __init__(self):
-        self.results_dir = './results_optimized'
+        self.results_dir = _P('results_optimized')
         self.output_dir = './backtest_results'
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -22,8 +28,8 @@ class StockBacktester:
         """加载原始数据和预测结果"""
         print("加载数据...")
 
-        data_path_parquet = './data/processed/all_factors.parquet'
-        data_path_csv = './data/processed/all_factors.csv'
+        data_path_parquet = _P('data', 'processed', 'all_factors.parquet')
+        data_path_csv = _P('data', 'processed', 'all_factors.csv')
 
         if os.path.exists(data_path_parquet):
             df = pd.read_parquet(data_path_parquet)

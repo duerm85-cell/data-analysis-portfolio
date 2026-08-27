@@ -38,15 +38,13 @@
 
 ## 系统截图
 
-<!-- 把应用运行时截取的界面截图放到 docs/screenshots/ 目录，再把下面的文件名改成实际的即可 -->
-
 <p align="center">
-  <img src="docs/screenshots/main_panel.png" width="48%" alt="主界面">
-  <img src="docs/screenshots/factor_analysis.png" width="48%" alt="因子分析">
-  <img src="docs/screenshots/prediction_panel.png" width="48%" alt="预测与回测">
-  <img src="docs/screenshots/backtest_curve.png" width="48%" alt="回测曲线">
+  <img src="docs/screenshots/main_panel.png" width="48%" alt="主界面 - 炫酷数据大屏">
+  <img src="docs/screenshots/factor_analysis.png" width="48%" alt="因子分析 - 技术指标与相关性">
+  <img src="docs/screenshots/prediction_panel.png" width="48%" alt="股票预测 - XGBoost / LSTM">
+  <img src="docs/screenshots/backtest_curve.png" width="48%" alt="策略回测 - 组合收益曲线">
   <br>
-  <em>※ 演示图位置：运行后替换为实际截图</em>
+  <em>从左到右、从上到下：主界面 → 因子分析 → 股票预测 → 策略回测</em>
 </p>
 
 ---

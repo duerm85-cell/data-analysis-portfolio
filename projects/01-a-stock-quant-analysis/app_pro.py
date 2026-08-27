@@ -19,7 +19,13 @@ import contextlib
 
 warnings.filterwarnings('ignore')
 
-USER_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'users.db')
+# ========== 路径基准：全部以 app_pro.py 所在目录为根，不依赖 cwd ==========
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def _P(*parts):
+    """将相对路径拼到 BASE_DIR 下，避免受命令行起始目录影响"""
+    return os.path.join(BASE_DIR, *parts)
+
+USER_DB_PATH = _P('data', 'users.db')
 
 
 def _get_db_conn():
@@ -391,7 +397,7 @@ def show_system_overview():
                 """, unsafe_allow_html=True)
     _log_xgb_acc, _log_xgb_auc, _log_xgb_mse = 0.5177, 0.5346, 0.249826
     _log_lstm_acc, _log_lstm_auc, _log_lstm_mse = 0.5094, 0.5328, 0.249148
-    _training_log_path = os.path.join('.', 'training_log.json')
+    _training_log_path = _P('training_log.json')
     if os.path.exists(_training_log_path):
         try:
             with open(_training_log_path, 'r', encoding='utf-8') as f:
@@ -813,7 +819,7 @@ def _predict_xgb(df_all, xgb_model_path, selected_code=None):
     try:
         model = xgb.XGBClassifier()
         model.load_model(xgb_model_path)
-        feature_list_path = os.path.join('.', 'results_optimized', 'xgb_feature_list.txt')
+        feature_list_path = _P('results_optimized', 'xgb_feature_list.txt')
         if os.path.exists(feature_list_path):
             with open(feature_list_path, 'r') as f:
                 features = [l.strip() for l in f if l.strip()]
@@ -859,7 +865,7 @@ def _predict_lstm(df_all, lstm_model_path, selected_code=None):
     if not os.path.exists(lstm_model_path):
         return {'error': 'LSTM 模型文件不存在，请点击「一键修复模型」重新训练'}
     try:
-        config_path = os.path.join('.', 'results_optimized', 'model_config.txt')
+        config_path = _P('results_optimized', 'model_config.txt')
         hidden_size, num_layers, dropout, time_steps = 64, 2, 0.2, 20
         model_input_size = len(FULL_FEATURES)
         if os.path.exists(config_path):
@@ -872,7 +878,7 @@ def _predict_lstm(df_all, lstm_model_path, selected_code=None):
                         elif k == 'num_layers': num_layers = int(v)
                         elif k == 'dropout': dropout = float(v)
                         elif k == 'time_steps': time_steps = int(v)
-        feature_list_path = os.path.join('.', 'results_optimized', 'feature_list.txt')
+        feature_list_path = _P('results_optimized', 'feature_list.txt')
         if os.path.exists(feature_list_path):
             with open(feature_list_path, 'r') as f:
                 features = [l.strip() for l in f if l.strip()]
@@ -968,8 +974,8 @@ def show_prediction():
         st.session_state['_pred_code'] = selected_code
         st.session_state['_pred_model'] = selected_model
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    xgb_model_path = os.path.join('.', 'results_optimized', 'xgb_fixed.json')
-    lstm_model_path = os.path.join('.', 'results_optimized', 'lstm_fixed.pth')
+    xgb_model_path = _P('results_optimized', 'xgb_fixed.json')
+    lstm_model_path = _P('results_optimized', 'lstm_fixed.pth')
     if selected_model == "LSTM":
         training = st.session_state.get('lstm_training', False)
         col_btn1, col_btn2 = st.columns(2)
@@ -993,8 +999,8 @@ def show_prediction():
                 try:
                     import subprocess
                     result = subprocess.run(
-                        [sys.executable, 'model_training.py'],
-                        capture_output=True, text=True, cwd='.', timeout=300,
+                        [sys.executable, _P('model_training.py')],
+                        capture_output=True, text=True, cwd=BASE_DIR, timeout=300,
                         encoding='utf-8', errors='replace'
                     )
                     st.session_state['lstm_training'] = False
@@ -1065,7 +1071,7 @@ def show_prediction():
                 deleted = []
                 for p in ['results_optimized/lstm_model.pth', 'results_optimized/lstm_fixed.pth',
                           'results_optimized/xgb_fixed.json', 'results_optimized/xgb_model.json']:
-                    full_p = os.path.join('.', p)
+                    full_p = _P(p)
                     if os.path.exists(full_p):
                         os.remove(full_p)
                         deleted.append(p)
@@ -1080,7 +1086,7 @@ def show_prediction():
             if st.button("🔄 一键修复模型（删除+重训练）", key='fix_retrain_btn', use_container_width=True):
                 for p in ['results_optimized/lstm_model.pth', 'results_optimized/lstm_fixed.pth',
                           'results_optimized/xgb_fixed.json', 'results_optimized/xgb_model.json']:
-                    full_p = os.path.join('.', p)
+                    full_p = _P(p)
                     if os.path.exists(full_p):
                         os.remove(full_p)
                 st.session_state.pop('_pred_result', None)
@@ -1090,14 +1096,14 @@ def show_prediction():
             if st.button("⭐ 恢复经典配置（25维特征+重训练）", key='fix_classic_btn', use_container_width=True):
                 for p in ['results_optimized/lstm_model.pth', 'results_optimized/lstm_fixed.pth',
                           'results_optimized/xgb_fixed.json', 'results_optimized/xgb_model.json']:
-                    full_p = os.path.join('.', p)
+                    full_p = _P(p)
                     if os.path.exists(full_p):
                         os.remove(full_p)
                 st.session_state.pop('_pred_result', None)
                 st.session_state['lstm_training'] = True
                 st.rerun()
     with st.expander("📊 训练日志", expanded=False):
-        log_path = os.path.join('.', 'training_log.json')
+        log_path = _P('training_log.json')
         if os.path.exists(log_path):
             try:
                 with open(log_path, 'r', encoding='utf-8') as f:

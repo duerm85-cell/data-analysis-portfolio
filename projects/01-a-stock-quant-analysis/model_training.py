@@ -34,6 +34,12 @@ import warnings
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
+# ========== 路径基准：全部以本文件所在目录为根，不依赖 cwd ==========
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def _P(*parts):
+    return os.path.join(_BASE_DIR, *parts)
+
+
 # 设置中文字体
 matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -46,7 +52,7 @@ class OptimizedStockPredictor:
         self.baseline_model = None
         self.scaler = StandardScaler()
         self.selected_features = None
-        self.results_dir = './results_optimized'
+        self.results_dir = _P('results_optimized')
         os.makedirs(self.results_dir, exist_ok=True)
 
     def load_data(self):
@@ -55,8 +61,8 @@ class OptimizedStockPredictor:
         print("股票量化分析系统 - 优化版模型训练")
         print("=" * 60)
 
-        data_path_parquet = './data/processed/all_factors.parquet'
-        data_path_csv = './data/processed/all_factors.csv'
+        data_path_parquet = _P('data', 'processed', 'all_factors.parquet')
+        data_path_csv = _P('data', 'processed', 'all_factors.csv')
 
         if os.path.exists(data_path_parquet):
             print(f"从Parquet文件读取数据: {data_path_parquet}")
@@ -410,7 +416,7 @@ def _set_seed(seed=42):
         pass
 
 def _save_training_log(model_name, features, acc, auc, mse, data_range, params):
-    log_path = './training_log.json'
+    log_path = _P('training_log.json')
     log = {}
     if os.path.exists(log_path):
         try:
@@ -436,7 +442,7 @@ def train_xgb_classifier():
     print("训练 XGBoost 分类模型（用于股票预测页面）")
     print("=" * 60)
     _set_seed(42)
-    data_path = './data/processed/all_factors.parquet'
+    data_path = _P('data', 'processed', 'all_factors.parquet')
     if not os.path.exists(data_path):
         print(f"[错误] 找不到数据文件: {data_path}")
         return
@@ -486,12 +492,13 @@ def train_xgb_classifier():
     print(f"分类准确率: {acc:.2%}")
     print(f"AUC: {auc:.4f}")
     print(f"MSE: {mse:.6f}")
-    os.makedirs('./results_optimized', exist_ok=True)
-    model.save_model('./results_optimized/xgb_fixed.json')
-    with open('./results_optimized/xgb_feature_list.txt', 'w') as f:
+    os.makedirs(_P('results_optimized'), exist_ok=True)
+    model.save_model(_P('results_optimized', 'xgb_fixed.json'))
+    with open(_P('results_optimized', 'xgb_feature_list.txt'), 'w') as f:
         for feat in available_features:
             f.write(feat + '\n')
-    print("XGBoost 分类模型已保存: ./results_optimized/xgb_fixed.json")
+    _saved = _P('results_optimized', 'xgb_fixed.json')
+    print(f"XGBoost 分类模型已保存: {_saved}")
     _save_training_log('XGBoost', available_features, acc, auc, mse, data_range,
                        {'n_estimators': 200, 'max_depth': 4, 'learning_rate': 0.05,
                         'subsample': 0.8, 'colsample_bytree': 0.8, 'random_state': 42})
@@ -524,7 +531,7 @@ def train_lstm_model():
             out = self.dropout(out[:, -1, :])
             return self.fc(out).squeeze(-1)
 
-    data_path = './data/processed/all_factors.parquet'
+    data_path = _P('data', 'processed', 'all_factors.parquet')
     if not os.path.exists(data_path):
         print(f"[错误] 找不到数据文件: {data_path}")
         return
@@ -588,7 +595,7 @@ def train_lstm_model():
     best_val_loss = float('inf')
     patience = 4
     patience_counter = 0
-    os.makedirs('./results_optimized', exist_ok=True)
+    os.makedirs(_P('results_optimized'), exist_ok=True)
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
@@ -609,13 +616,13 @@ def train_lstm_model():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), './results_optimized/lstm_fixed.pth')
+            torch.save(model.state_dict(), _P('results_optimized', 'lstm_fixed.pth'))
         else:
             patience_counter += 1
             if patience_counter >= patience:
                 print(f"早停于第 {epoch + 1} 轮")
                 break
-    model.load_state_dict(torch.load('./results_optimized/lstm_fixed.pth', weights_only=True))
+    model.load_state_dict(torch.load(_P('results_optimized', 'lstm_fixed.pth'), weights_only=True))
     model.eval()
     with torch.no_grad():
         logits = model(X_test_t)
@@ -630,7 +637,7 @@ def train_lstm_model():
     print(f"分类准确率: {acc:.2%}")
     print(f"AUC: {auc:.4f}")
     print(f"MSE: {mse:.6f}")
-    with open('./results_optimized/model_config.txt', 'w') as f:
+    with open(_P('results_optimized', 'model_config.txt'), 'w') as f:
         f.write(f"input_size={input_size}\n")
         f.write(f"hidden_size={hidden_size}\n")
         f.write(f"num_layers=2\n")
@@ -638,11 +645,11 @@ def train_lstm_model():
         f.write(f"time_steps={time_steps}\n")
         f.write(f"bidirectional=True\n")
         f.write(f"task=classification\n")
-    with open('./results_optimized/feature_list.txt', 'w') as f:
+    with open(_P('results_optimized', 'feature_list.txt'), 'w') as f:
         for feat in available_features:
             f.write(feat + '\n')
-    np.save('./results_optimized/scaler_mean.npy', scaler.mean_)
-    np.save('./results_optimized/scaler_std.npy', scaler.scale_)
+    np.save(_P('results_optimized', 'scaler_mean.npy'), scaler.mean_)
+    np.save(_P('results_optimized', 'scaler_std.npy'), scaler.scale_)
     print("LSTM 分类模型已保存: ./results_lstm/lstm_fixed.pth")
     print("模型配置已保存: ./results_lstm/model_config.txt")
     _save_training_log('LSTM', available_features, acc, auc, mse, data_range,

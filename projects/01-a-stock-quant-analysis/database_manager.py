@@ -4,11 +4,16 @@ import pandas as pd
 import os
 from datetime import datetime
 
+# ========== 路径基准：全部以本文件所在目录为根，不依赖 cwd ==========
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def _P(*parts):
+    return os.path.join(_BASE_DIR, *parts)
+
 class StockDatabase:
     """股票数据库管理器 - 使用SQLite"""
     
-    def __init__(self, db_path='./data/stock_data.db'):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        self.db_path = db_path or _P('data', 'stock_data.db')
         self.init_database()
     
     def init_database(self):
@@ -84,7 +89,7 @@ class StockDatabase:
         conn.close()
         print(f"✅ 数据库初始化完成: {self.db_path}")
     
-    def import_from_parquet(self, parquet_path='./data/processed/all_factors.parquet'):
+    def import_from_parquet(self, parquet_path=None):
         """从Parquet文件导入数据"""
         if not os.path.exists(parquet_path):
             print(f"❌ 文件不存在: {parquet_path}")
@@ -150,10 +155,10 @@ def main():
     print("=" * 60)
     
     # 创建数据库实例
-    db = StockDatabase('./data/stock_data.db')
+    db = StockDatabase()
     
     # 导入数据
-    db.import_from_parquet('./data/processed/all_factors.parquet')
+    db.import_from_parquet()
     
     # 查看统计
     stats = db.get_data_count()
