@@ -1,0 +1,22 @@
+﻿# 量化选股分析系统 - 依赖清单
+# Python 3.10+
+
+## 核心依赖
+streamlit==1.50.0
+pandas==2.1.4
+numpy==1.26.4
+plotly==6.7.0
+torch==2.8.0
+xgboost==2.1.4
+scikit-learn==1.3.2
+scipy==1.13.1
+matplotlib==3.9.4
+tushare==1.4.29
+akshare==1.18.55
+snownlp==0.12.3
+sqlalchemy==1.4.39
+pyodbc==4.0.34
+pymysql==1.1.3
+pywin32==302
+pyarrow==21.0.0
+

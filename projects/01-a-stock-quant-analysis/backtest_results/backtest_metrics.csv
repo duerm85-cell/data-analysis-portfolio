@@ -1,0 +1,2 @@
+initial_capital,n_stocks_per_day,total_return,annualized_return,annualized_volatility,sharpe_ratio,max_drawdown,win_rate,benchmark_total_return,excess_return
+1000000,10,1.4004189824022224,0.10693009762039529,0.12952098964726189,0.8255812275030422,-0.18127391889101555,0.5042265426880812,1.473638270418522,-0.07321928801629962

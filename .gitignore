@@ -1,0 +1,42 @@
+# ========== Portfolio 顶层 .gitignore ==========
+# 把项目子目录里应该忽略的内容统一在这里 + 子目录的 .gitignore 双重保护
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境 / conda 环境
+.conda/
+.venv/
+venv/
+env/
+
+# 历史归档（项目自身的 archive）
+**/archive/
+
+# 用户数据库（含密码哈希，不公开）
+**/users.db
+**/data/users.db
+
+# IDE
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
+
+# 日志
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.bak
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini

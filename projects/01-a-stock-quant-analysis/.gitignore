@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# 虚拟环境 / Conda 环境
+.conda/
+.venv/
+venv/
+env/
+ENV/
+
+# 历史归档（不影响主程序运行）
+archive/
+
+# 用户数据库（含密码哈希，不上传）
+data/users.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Streamlit 缓存
+.streamlit/
+
+# 日志
+*.log
+logs/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+*.bak
