@@ -9,9 +9,9 @@
   <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
 </p>
 
-> 基于多因子模型与机器学习的 A 股量化分析系统：数据获取 → 因子构建 → 模型训练（XGBoost / BiLSTM）→ 策略回测 → 可视化大屏，覆盖量化研究完整链路。
+> 金融数据流水线 + 量化分析应用：Tushare/AKShare 数据获取 → 清洗校验 → 分层落盘（CSV / Parquet / SQLite）→ 因子计算 → XGBoost / BiLSTM 建模 → T+1 策略回测 → Streamlit 可视化大屏。
 
-一个从原始行情数据出发、可完整复现的量化研究项目：构建 24 个技术/情绪因子，用 XGBoost 与 BiLSTM 做涨跌方向预测，并以 T+1 成交口径进行 9 年滚动回测。项目重点保证**无数据泄露**的时间序列实验设计。
+一个可完整复现的 A 股数据工程与量化研究项目：管理 **364 只股票、53 万行日频行情**的分层存储（raw → clean → processed → SQLite），构建 24 个技术/情绪因子，用 XGBoost 与 BiLSTM 做涨跌方向预测，并以 T+1 成交口径进行 9 年滚动回测。项目重点保证**无数据泄露**的时间序列实验设计，数据、代码、结果全部开源。
 
 ## 系统截图
 
@@ -37,16 +37,27 @@
 | 🎯 股票预测 | XGBoost / BiLSTM 双模型涨跌方向预测，输出准确率、AUC、预测走势图 |
 | 📊 策略回测 | 读取真实回测结果：Top-N 选股、净值曲线、动态回撤、策略 vs 沪深300 对比 |
 
-## 数据流水线
+## 金融数据流水线与存储
 
 ```text
-Tushare/AKShare 行情 ──┐
-                       ├──> data_preprocessing ──> factor_engineering ──> model_training ──> backtest
-新闻文本 (SnowNLP) ────┘         数据清洗                24 个因子           XGBoost/BiLSTM      T+1 回测
-                                                                              Walk-Forward        |
-                                                                                                  v
-                                                                              Streamlit 应用 (app_pro.py) <── 持仓明细/指标
+Tushare / AKShare 行情 ──┐
+                         ├──> data_preprocessing ──> factor_engineering ──> model_training ──> backtest
+新闻文本 (SnowNLP) ──────┘         数据清洗/校验            24 个因子            XGBoost/BiLSTM      T+1 回测
+                                                                                Walk-Forward        |
+                                                                                                    v
+                                                                                Streamlit 应用 (app_pro.py) <── 读库/读结果
 ```
+
+**数据分层存储**（`data/`，对应数仓 ODS → DWD → DWS 的分层思想）：
+
+| 层 | 位置 | 内容 | 规模 |
+|----|------|------|------|
+| 原始层 | `data/raw/` | Tushare/AKShare 逐股票日线 CSV（贴源保存） | 364 只 A 股，2024-12-30 起 |
+| 清洗层 | `data/clean/` | 缺失/停牌处理、类型标准化后的标准行情表 | 364 只对齐日频行情 |
+| 加工层 | `data/processed/` | 24 因子宽表（Parquet / CSV） | 支撑 2017→2026 共 2366 个交易日回测 |
+| 服务层 | `data/stock_data.db` | **SQLite 行情库**，建表 / 批量写入 / SQL 聚合查询，供看板直接读库 | 53 万行记录 |
+
+**数据质量保障**：批量抓取容错与重试；缺失值 / 停牌日处理与类型校验；标签构造 `ret.shift(-1)` 与滚动窗口内拟合，从机制上杜绝未来函数对数据一致性的破坏。
 
 ## 因子体系
 
@@ -165,13 +176,13 @@ python -m streamlit run app_pro.py --server.port 8501
 | 类别 | 技术 | 用途 |
 |------|------|------|
 | 语言 | Python 3.10+ | 数据处理、建模与分析 |
+| 数据库 | **SQLite（SQL）** | 行情落库：建表、批量写入、聚合查询（技能可迁移至 MySQL / PostgreSQL） |
 | 数据处理 | Pandas, NumPy | 清洗、合并、时间序列处理 |
+| 数据源 | Tushare, AKShare | A 股行情与补充数据接入 |
 | 机器学习 | XGBoost, scikit-learn | 涨跌分类、特征重要性评估 |
 | 深度学习 | PyTorch (BiLSTM) | 时间序列预测 |
 | 回测 | 自研 T+1 回测引擎 | Top-N 选股、净值/回撤/超额计算 |
 | 可视化 | Plotly, Streamlit | 交互式分析与可视化大屏 |
-| 数据库 | SQLite | 本地行情数据管理 |
-| 数据源 | Tushare, AKShare | A 股行情与补充数据 |
 | 情绪分析 | SnowNLP | 新闻文本情绪因子 |
 
 ## 局限性
@@ -179,6 +190,7 @@ python -m streamlit run app_pro.py --server.port 8501
 - A 股日频预测噪声极大，模型 AUC ≈ 0.53 的预测力有限，不构成任何实盘依据
 - 回测未完全模拟真实市场冲击成本与流动性约束，超额收益受样本区间影响明显
 - 因子以日频技术面为主，未纳入基本面与更细粒度的微观结构数据
+- 存储为单机 SQLite（50 万行级），满足日频场景；若扩展至分钟级 / Tick 级全市场数据，单文件库将成为写入与并发查询瓶颈，演进方向是列式存储（ClickHouse / Doris）配合流式增量管道（Kafka / Flink）
 
 > **免责声明**：本项目仅用于学习与技术研究，不构成任何投资建议。据此操作，风险自负。
 

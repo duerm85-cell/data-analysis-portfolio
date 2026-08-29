@@ -4,20 +4,20 @@
 
 ## 👋 About Me
 
-我是一名数据科学与大数据技术专业本科毕业生，主要学习和实践方向为数据分析、数据挖掘与量化分析。
+我是一名数据科学与大数据技术专业本科毕业生，主要学习与实践方向为数据处理、数据库应用与量化数据分析。
 
-在本科阶段系统学习了 Python 数据分析、MySQL、统计学、机器学习、Hadoop/Spark、数据可视化等相关课程，并独立完成了 A 股多因子量化分析系统——从数据采集、仓库搭建、因子建模到回测与可视化看板的全链路实践（见下方项目 01）。
+在本科阶段系统学习了 Python、MySQL/SQL、统计学、机器学习、Hadoop/Spark、数据可视化等课程，并独立完成了 A 股多因子量化分析系统——从金融数据采集、清洗落库（SQLite）、因子建模到回测与可视化看板的全链路实践（见下方项目 01）。
 
-目前希望寻找数据分析、产品数据运营及相关岗位，通过实际项目进一步提升数据处理、分析建模和业务分析能力。
+目前希望寻找数据开发、量化数据方向及相关岗位，希望围绕真实业务数据继续打磨数据清洗校验、数据库管理与数据处理工具开发能力。
 
 ## 🛠️ Skills
 
-- **Programming:** Python
-- **Data Analysis:** Pandas, NumPy
-- **Database:** MySQL
-- **Visualization:** Matplotlib, Plotly, Streamlit
+- **Programming:** Python (Pandas / NumPy)
+- **Database / SQL:** MySQL（课程系统学习）· SQLite（项目实战）· SQL 建表 / 查询 / 聚合
+- **Financial Data:** Tushare · AKShare · SnowNLP（金融数据源接入与文本情绪处理）
+- **Data Analysis:** Statistics, Scipy, Scikit-learn
 - **Big Data:** Hadoop, Spark
-- **Statistical Analysis:** Statistics, Scipy, Scikit-learn
+- **Visualization:** Matplotlib, Plotly, Streamlit
 - **Machine Learning:** XGBoost, PyTorch (LSTM)
 - **Development Tools:** Git, Linux, VS Code
 
@@ -34,7 +34,7 @@
 
 **主要方向：**
 
-- A 股金融数据获取与清洗（Tushare / Akshare + 新闻舆情）
+- A 股金融数据获取与清洗落库（Tushare / Akshare + 新闻舆情，raw → clean → processed → SQLite 分层存储，53 万行行情）
 - 多因子构建与标准化处理（动量、趋势、波动、情绪共 24+ 因子）
 - 因子有效性分析（IC、IR、分组检验）
 - 市场情绪指标研究（SnowNLP 情感打分）
@@ -60,7 +60,7 @@
 
 ## 🎯 Career Goal
 
-希望从数据分析相关岗位开始，通过真实业务数据积累数据清洗、指标分析、数据建模和商业分析经验，逐步形成完整的数据分析能力。
+希望从量化数据开发 / 数据开发方向入手，围绕真实金融与业务数据，积累数据清洗校验、数据库管理、数据接口与数据处理工具开发的工程经验，成为策略研究与业务团队中可靠的数据支持角色。
 
 ---
 
