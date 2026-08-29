@@ -1459,55 +1459,57 @@ def show_dashboard():
     """, unsafe_allow_html=True)
 
 
+@st.cache_data(ttl=600)
+def _load_backtest_results():
+    """读取 backtest.py 输出的真实回测结果（T+1 成交口径）"""
+    metrics_path = _P('backtest_results', 'backtest_metrics.csv')
+    daily_path = _P('backtest_results', 'backtest_results.csv')
+    hold_path = _P('backtest_results', 'daily_portfolios.csv')
+    df_m = pd.read_csv(metrics_path) if os.path.exists(metrics_path) else None
+    df_r = pd.read_csv(daily_path, parse_dates=['date']) if os.path.exists(daily_path) else None
+    df_h = pd.read_csv(hold_path, parse_dates=['date']) if os.path.exists(hold_path) else None
+    return df_m, df_r, df_h
+
+
 def show_backtest():
     st.markdown("<div class='main-title'>📊 策略回测</div>", unsafe_allow_html=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    df_factors, _, _ = load_data()
-    st.markdown("<div class='section-title'>⚙️ 回测参数设置</div>", unsafe_allow_html=True)
-    default_top_n = st.session_state.get('top_n', 20)
-    col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
-    with col_p1:
-        top_n = st.number_input("选股数量", min_value=5, max_value=50, value=int(default_top_n), key='bt_top_n')
-    with col_p2:
-        rebalance_freq = st.selectbox("调仓频率", ["每日", "每周", "每月"], key='bt_rebalance')
-    with col_p3:
-        commission_rate = st.number_input("佣金率(%)", min_value=0.0, max_value=1.0, value=0.1, step=0.01, key='bt_commission')
-    with col_p4:
-        stop_loss = st.number_input("止损阈值(%)", min_value=-15.0, max_value=-1.0, value=-5.0, step=0.5, key='bt_stop_loss')
-    with col_p5:
-        benchmark_choice = st.selectbox("基准选择", ["沪深300", "中证500", "上证50"], key='bt_benchmark')
-    if st.button("🔄 重新运行回测", use_container_width=True, key='rerun_backtest'):
-        st.session_state.top_n = top_n
-        if st.session_state.username:
-            db_update_user(st.session_state.username, top_n=top_n)
-        st.session_state.bt_rerun = True
-    rerun_flag = st.session_state.get('bt_rerun', False)
-    np.random.seed(42)
-    dates = pd.date_range(start='2018-01-01', end='2026-01-01', freq='D')
-    freq_map = {"每日": 1, "每周": 5, "每月": 20}
-    rebalance_days = freq_map.get(rebalance_freq, 1)
-    comm = commission_rate / 100.0
-    sl = stop_loss / 100.0
-    base_vol = 0.02
-    if top_n > 30:
-        base_vol *= 0.95
-    if rebalance_days > 1:
-        base_vol *= 0.98
-    daily_returns = np.random.normal(0.0003, base_vol, len(dates))
-    for i in range(len(daily_returns)):
-        if daily_returns[i] < sl:
-            daily_returns[i] = sl
-    daily_returns -= comm / rebalance_days
-    strategy_values = np.cumprod(1 + daily_returns)
-    bench_map = {"沪深300": 0.5, "中证500": 0.45, "上证50": 0.55}
-    bench_factor = bench_map.get(benchmark_choice, 0.5)
-    benchmark_values = np.cumprod(1 + daily_returns * bench_factor)
-    win_rate = (daily_returns > 0).mean()
-    annual_return = (strategy_values[-1] ** (252 / len(dates)) - 1)
-    sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() > 0 else 0
-    drawdown_arr = strategy_values / np.maximum.accumulate(strategy_values) - 1
-    max_dd = drawdown_arr.min()
+
+    # ===== 直接读取 backtest.py 生成的真实回测结果 =====
+    df_metrics, df_bt, df_hold = _load_backtest_results()
+    if df_metrics is None or df_bt is None or df_bt.empty:
+        st.markdown("<div style='padding:12px 16px;border-radius:8px;background:rgba(241,196,15,0.12);color:#f39c12;font-size:15px;'>"
+                    "⚠️ 未找到真实回测结果文件（backtest_results/backtest_metrics.csv）。<br>"
+                    "请先在项目目录运行 <code>python backtest.py</code> 生成回测结果，完成后刷新本页。</div>", unsafe_allow_html=True)
+        return
+    m = df_metrics.iloc[0]
+    df_bt = df_bt.sort_values('date').reset_index(drop=True)
+    dates = df_bt['date']
+    equity = df_bt['equity_curve']
+    strat_cum = equity / equity.iloc[0] - 1
+    bench_cum = df_bt['benchmark_equity'] / df_bt['benchmark_equity'].iloc[0] - 1
+    drawdown_arr = equity / equity.cummax() - 1
+
+    win_rate = float(m['win_rate'])
+    annual_return = float(m['annualized_return'])
+    sharpe = float(m['sharpe_ratio'])
+    max_dd = float(m['max_drawdown'])
+    total_return = float(m['total_return'])
+    excess_return = float(m['excess_return'])
+    ann_vol = float(m['annualized_volatility'])
+    bench_total = float(m['benchmark_total_return'])
+    init_capital = float(m['initial_capital'])
+    n_per_day = int(m['n_stocks_per_day'])
+    start_d = dates.iloc[0].strftime('%Y-%m-%d')
+    end_d = dates.iloc[-1].strftime('%Y-%m-%d')
+
+    st.markdown(f"""
+        <div class="custom-info-box">
+            <p style="margin: 0;">⚙️ 回测配置（真实回测结果，由 <code>backtest.py</code> 按滚动窗口 Walk-Forward 生成）：</p>
+            <p style="margin: 5px 0 0 20px;">- 回测区间：<b>{start_d} ~ {end_d}</b> ｜ 初始资金：<b>{init_capital:,.0f}</b> ｜ 每日持股：<b>{n_per_day} 只</b></p>
+        </div>
+    """, unsafe_allow_html=True)
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'>🎯 回测指标</div>", unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
@@ -1518,12 +1520,47 @@ def show_backtest():
     with col3:
         st.markdown(f"<div class='metric-card'><div class='metric-value'>{sharpe:.2f}</div><div class='metric-label'>夏普比率</div></div>", unsafe_allow_html=True)
     with col4:
-        st.markdown(f"<div class='metric-card'><div class='metric-value'>{max_dd:.1%}</div><div class='metric-label'>最大回撤</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='metric-card'><div class='metric-value' style='color:#e74c3c; -webkit-text-fill-color:#e74c3c;'>{max_dd:.1%}</div><div class='metric-label'>最大回撤</div></div>", unsafe_allow_html=True)
+    # 第二行：宽幅"策略 vs 基准"收益对比条 + 窄幅波动率卡，主次分明不呆板
+    col_a, col_b = st.columns([2.6, 1])
+    with col_a:
+        max_val = max(abs(total_return), abs(bench_total)) or 1
+        w_strat = abs(total_return) / max_val * 100
+        w_bench = abs(bench_total) / max_val * 100
+        excess_color = '#e74c3c' if excess_return < 0 else '#27ae60'
+        txt = colors.get('secondary_text', '#7a8ba6')
+        track = colors.get('grid_color', '#e9eef5')
+        st.markdown(f"""
+            <div class='metric-card' style='padding: 20px 26px;'>
+                <div style='display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px;'>
+                    <span style='font-size:14px; color:{txt}; font-weight:600;'>📊 累计收益对比（{start_d[:4]}–{end_d[:4]}）</span>
+                    <span style='font-size:14px; color:{excess_color}; font-weight:700;'>超额收益 {excess_return:+.1%}</span>
+                </div>
+                <div style='margin-bottom:14px;'>
+                    <div style='display:flex; justify-content:space-between; font-size:14px; color:{txt}; margin-bottom:5px;'>
+                        <span>🚀 策略</span><b style='color:#40A0FF;'>{total_return:+.1%}</b>
+                    </div>
+                    <div style='background:{track}; border-radius:6px; height:16px;'>
+                        <div style='width:{w_strat:.0f}%; height:100%; border-radius:6px; background:linear-gradient(90deg,#2E86AB,#40A0FF);'></div>
+                    </div>
+                </div>
+                <div>
+                    <div style='display:flex; justify-content:space-between; font-size:14px; color:{txt}; margin-bottom:5px;'>
+                        <span>📉 沪深300</span><b style='color:#e67e22;'>{bench_total:+.1%}</b>
+                    </div>
+                    <div style='background:{track}; border-radius:6px; height:16px;'>
+                        <div style='width:{w_bench:.0f}%; height:100%; border-radius:6px; background:linear-gradient(90deg,#e67e22,#f5b041);'></div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    with col_b:
+        st.markdown(f"<div class='metric-card'><div class='metric-value'>{ann_vol:.1%}</div><div class='metric-label'>年化波动率</div></div>", unsafe_allow_html=True)
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     with st_card():
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=dates, y=strategy_values, name='策略净值', line=dict(color=colors['accent'], width=2.5), mode='lines'))
-        fig.add_trace(go.Scatter(x=dates, y=benchmark_values, name=benchmark_choice, line=dict(color=colors['success'], width=2, dash='dot'), showlegend=True))
+        fig.add_trace(go.Scatter(x=dates, y=strat_cum, name='策略净值', line=dict(color=colors['accent'], width=2.5), mode='lines'))
+        fig.add_trace(go.Scatter(x=dates, y=bench_cum, name='沪深300', line=dict(color=colors['success'], width=2, dash='dot'), showlegend=True))
         fig.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 策略净值曲线', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=50, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), tickformat='%Y'), yaxis=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
@@ -1535,65 +1572,45 @@ def show_backtest():
         st.plotly_chart(fig_dd, use_container_width=True, config={'displayModeBar': True})
     st.markdown("""
         <div class="custom-info-box">
-            <p style="margin: 0;">💡 回测说明：</p>
-            <p style="margin: 5px 0 0 20px;">- 策略：基于多因子综合评分（动量、RSI、MACD、波动率等），每日买入评分最高的N只股票</p>
-            <p style="margin: 5px 0 0 20px;">- 信号生成：使用前一日因子排名，避免未来信息泄露</p>
-            <p style="margin: 5px 0 0 20px;">- 买入价格：次日开盘价（更贴近真实交易）</p>
-            <p style="margin: 5px 0 0 20px;">- 交易成本：含佣金和印花税（卖出千分之一）</p>
+            <p style="margin: 0;">💡 回测说明（真实口径）：</p>
+            <p style="margin: 5px 0 0 20px;">- 策略：基于多因子综合评分（动量、RSI、MACD、波动率等）排序，每日买入评分最高的前 N 只股票</p>
+            <p style="margin: 5px 0 0 20px;">- 成交口径：T 日收盘后生成信号，T+1 日收盘价成交（T+1 规则，避免未来函数）</p>
+            <p style="margin: 5px 0 0 20px;">- 模型：XGBoost 滚动窗口 Walk-Forward 训练，仅用历史窗口数据，杜绝数据泄露</p>
+            <p style="margin: 5px 0 0 20px;">- 交易成本：包含佣金与印花税；基准：沪深300</p>
         </div>
         """, unsafe_allow_html=True)
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>📋 订单明细</div>", unsafe_allow_html=True)
-    if df_factors is not None:
-        df_factors_copy = df_factors.copy()
-        df_factors_copy['date'] = pd.to_datetime(df_factors_copy['date'])
-        bt_dates = df_factors_copy['date'].unique()
-        bt_dates = sorted(bt_dates)
-        min_bt_date = bt_dates[0].date() if len(bt_dates) > 0 else datetime(2018, 1, 1).date()
-        max_bt_date = bt_dates[-1].date() if len(bt_dates) > 0 else datetime(2026, 1, 1).date()
+    st.markdown("<div class='section-title'>📋 每日持仓明细</div>", unsafe_allow_html=True)
+    if df_hold is not None and not df_hold.empty:
+        bt_dates = sorted(df_bt['date'].dt.date.unique())
+        min_bt_date, max_bt_date = bt_dates[0], bt_dates[-1]
         filter_col1, filter_col2 = st.columns(2)
         with filter_col1:
-            bt_start = st.date_input("起始日期", value=min_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_order_start')
+            bt_start = st.date_input("起始日期", value=min_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_hold_start')
         with filter_col2:
-            bt_end = st.date_input("结束日期", value=max_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_order_end')
-        with st.expander("📊 查看订单明细", expanded=False):
-            np.random.seed(42)
-            sample_dates = pd.date_range(start=str(bt_start), end=str(bt_end), freq='B')
-            if len(sample_dates) > 100:
-                sample_dates = np.random.choice(sample_dates, 100, replace=False)
-                sample_dates = sorted(sample_dates)
-            order_records = []
-            for d in sample_dates:
-                n_orders = np.random.randint(1, min(top_n, 5) + 1)
-                for _ in range(n_orders):
-                    stock_code = f"{np.random.randint(600000, 688000):06d}"
-                    direction = np.random.choice(['买入', '卖出'], p=[0.6, 0.4])
-                    price = round(np.random.uniform(5, 80), 2)
-                    shares = int(np.random.choice([100, 200, 500, 1000]))
-                    order_records.append({
-                        '日期': pd.Timestamp(d).strftime('%Y-%m-%d'),
-                        '股票代码': stock_code,
-                        '方向': direction,
-                        '价格': price,
-                        '数量': shares,
-                        '金额': round(price * shares, 2),
-                        '佣金': round(price * shares * comm, 2)
-                    })
-            if order_records:
-                df_orders = pd.DataFrame(order_records)
-                st.dataframe(df_orders, use_container_width=True, height=300)
-                csv_data = df_orders.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label="📥 下载订单明细 CSV",
-                    data=csv_data,
-                    file_name=f'订单明细_{bt_start}_{bt_end}.csv',
-                    mime='text/csv',
-                    key='download_orders_csv'
-                )
-            else:
-                st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>该日期范围内无订单记录</div>", unsafe_allow_html=True)
+            bt_end = st.date_input("结束日期", value=max_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_hold_end')
+        df_hold_f = df_hold[(df_hold['date'].dt.date >= bt_start) & (df_hold['date'].dt.date <= bt_end)].copy()
+        if not df_hold_f.empty:
+            df_hold_f = df_hold_f.sort_values(['date', 'code'])
+            df_show = pd.DataFrame({
+                '日期': df_hold_f['date'].dt.strftime('%Y-%m-%d'),
+                '股票代码': df_hold_f['code'].apply(lambda x: str(int(x)).zfill(6)),
+                '预测收益': df_hold_f['predicted'].round(4),
+                '实际收益': df_hold_f['actual'].round(4),
+            })
+            st.dataframe(df_show, use_container_width=True, height=380)
+            csv_data = df_show.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 下载持仓明细 CSV",
+                data=csv_data,
+                file_name=f'每日持仓明细_{bt_start}_{bt_end}.csv',
+                mime='text/csv',
+                key='download_holdings_csv'
+            )
+        else:
+            st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>该日期范围内无持仓记录</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>请先加载数据以查看订单明细</div>", unsafe_allow_html=True)
+        st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>未找到每日持仓文件（backtest_results/daily_portfolios.csv）</div>", unsafe_allow_html=True)
 
 
 def main():
