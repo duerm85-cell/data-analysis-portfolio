@@ -154,7 +154,7 @@ DARK_CSS = """<style>
     .dashboard-title { font-size: 52px; font-weight: 900; text-align: center; background: linear-gradient(90deg, #6C63FF, #FF6B9D, #40FF80, #6C63FF); background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: gradient-shift 4s ease infinite; margin-bottom: 30px; }
     @keyframes gradient-shift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
     .dashboard-metric { background: rgba(40, 40, 75, 0.9); border-radius: 16px; padding: 20px; text-align: center; border: 1px solid rgba(108, 99, 255, 0.3); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-    .dashboard-metric-value { font-size: 48px; font-weight: 900; background: linear-gradient(135deg, #6C63FF, #FF6B9D); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .dashboard-metric-value { font-size: 48px; font-weight: 900; white-space: nowrap; background: linear-gradient(135deg, #6C63FF, #FF6B9D); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     .dashboard-metric-label { font-size: 15px; color: #c0c0e0; margin-top: 8px; }
 </style>
 """
@@ -218,7 +218,7 @@ LIGHT_CSS = """<style>
     .dashboard-title { font-size: 52px; font-weight: 900; text-align: center; background: linear-gradient(90deg, #2E86AB, #40A0FF, #2ECC71, #2E86AB); background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: gradient-shift 4s ease infinite; margin-bottom: 30px; }
     @keyframes gradient-shift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
     .dashboard-metric { background: rgba(255, 255, 255, 0.9); border-radius: 16px; padding: 20px; text-align: center; border: 1px solid rgba(46, 134, 171, 0.2); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
-    .dashboard-metric-value { font-size: 48px; font-weight: 900; background: linear-gradient(135deg, #2E86AB, #40A0FF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .dashboard-metric-value { font-size: 48px; font-weight: 900; white-space: nowrap; background: linear-gradient(135deg, #2E86AB, #40A0FF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     .dashboard-metric-label { font-size: 15px; color: #666666; margin-top: 8px; }
 </style>
 """
@@ -1209,39 +1209,53 @@ def show_dashboard():
     if len(df_latest) > 0 and 'open' in df_latest.columns:
         up_count = (df_latest['close'] > df_latest['open']).sum()
         down_count = (df_latest['close'] <= df_latest['open']).sum()
+    # 五张指标卡：中间最小，向两边依次放大（对称阶梯布局）
+    stair = [
+        # (value字号, 卡片内边距)
+        ('46px', '34px 20px'),   # 卡1 股票总数（最大）
+        ('38px', '28px 20px'),   # 卡2 数据记录数
+        ('28px', '22px 20px'),   # 卡3 起始日期（中间最小）
+        ('38px', '28px 20px'),   # 卡4 上涨家数
+        ('46px', '34px 20px'),   # 卡5 下跌家数（最大）
+    ]
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
+        fs, pad = stair[0]
         st.markdown(f"""
-            <div class='dashboard-metric'>
-                <div class='dashboard-metric-value'>{stock_count}</div>
+            <div class='dashboard-metric' style='padding: {pad};'>
+                <div class='dashboard-metric-value' style='font-size: {fs};'>{stock_count}</div>
                 <div class='dashboard-metric-label'>📈 股票总数</div>
             </div>
         """, unsafe_allow_html=True)
     with col2:
+        fs, pad = stair[1]
         st.markdown(f"""
-            <div class='dashboard-metric'>
-                <div class='dashboard-metric-value'>{total_records:,}</div>
+            <div class='dashboard-metric' style='padding: {pad};'>
+                <div class='dashboard-metric-value' style='font-size: {fs};'>{total_records:,}</div>
                 <div class='dashboard-metric-label'>💾 数据记录数</div>
             </div>
         """, unsafe_allow_html=True)
     with col3:
+        fs, pad = stair[2]
         st.markdown(f"""
-            <div class='dashboard-metric'>
-                <div class='dashboard-metric-value' style='font-size: 24px;'>{start_date}</div>
+            <div class='dashboard-metric' style='padding: {pad};'>
+                <div class='dashboard-metric-value' style='font-size: {fs};'>{start_date}</div>
                 <div class='dashboard-metric-label'>📅 起始日期</div>
             </div>
         """, unsafe_allow_html=True)
     with col4:
+        fs, pad = stair[3]
         st.markdown(f"""
-            <div class='dashboard-metric'>
-                <div class='dashboard-metric-value' style='color: #40FF80; font-size: 36px;'>{up_count}</div>
+            <div class='dashboard-metric' style='padding: {pad};'>
+                <div class='dashboard-metric-value' style='color: #40FF80; font-size: {fs};'>{up_count}</div>
                 <div class='dashboard-metric-label'>🟢 上涨家数</div>
             </div>
         """, unsafe_allow_html=True)
     with col5:
+        fs, pad = stair[4]
         st.markdown(f"""
-            <div class='dashboard-metric'>
-                <div class='dashboard-metric-value' style='color: #FF6B6B; font-size: 36px;'>{down_count}</div>
+            <div class='dashboard-metric' style='padding: {pad};'>
+                <div class='dashboard-metric-value' style='color: #FF6B6B; font-size: {fs};'>{down_count}</div>
                 <div class='dashboard-metric-label'>🔴 下跌家数</div>
             </div>
         """, unsafe_allow_html=True)

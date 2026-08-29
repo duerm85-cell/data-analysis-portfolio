@@ -39,12 +39,14 @@
 ## 系统截图
 
 <p align="center">
-  <img src="docs/screenshots/main_panel.png" width="48%" alt="主界面 - 炫酷数据大屏">
-  <img src="docs/screenshots/factor_analysis.png" width="48%" alt="因子分析 - 技术指标与相关性">
+  <img src="docs/screenshots/main_panel.png" width="90%" alt="主界面 - 炫酷数据大屏">
+  <br><br>
+  <img src="docs/screenshots/factor_analysis.png" width="48%" alt="因子分析 - 价格走势 / RSI / MACD">
+  <img src="docs/screenshots/factor_ic_analysis.png" width="48%" alt="因子相关性热力图与因子IC实时分析">
   <img src="docs/screenshots/prediction_panel.png" width="48%" alt="股票预测 - XGBoost / LSTM">
-  <img src="docs/screenshots/backtest_curve.png" width="48%" alt="策略回测 - 组合收益曲线">
+  <img src="docs/screenshots/backtest_curve.png" width="48%" alt="策略回测 - 净值曲线与动态回撤">
   <br>
-  <em>从左到右、从上到下：主界面 → 因子分析 → 股票预测 → 策略回测</em>
+  <em>数据大屏 → 因子分析（技术指标）→ 因子相关性热力图 & IC 序列 → 股票预测 → 策略回测</em>
 </p>
 
 ---
