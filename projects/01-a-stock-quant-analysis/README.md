@@ -127,7 +127,7 @@ python spark_pipeline.py
 
 ```bash
 python -m unittest discover -s tests -v
-python -m compileall -q .
+python -m compileall -q -x "archive" .
 ```
 
 CI 会在 Python 3.10 和 3.11 上执行相同检查。演示数据、数据库、模型、日志和回测产物均被 `.gitignore` 排除。
