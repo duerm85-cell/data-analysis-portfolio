@@ -5,13 +5,19 @@ import shutil
 from datetime import datetime
 import glob
 
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _P(*parts):
+    return os.path.join(_BASE_DIR, *parts)
+
 class DataPreprocessor:
-    def __init__(self, raw_dir='./data/raw/', invalid_dir='./data/raw/invalid/', 
-                 clean_dir='./data/clean/', report_file='data_cleaning_report.txt'):
-        self.raw_dir = raw_dir
-        self.invalid_dir = invalid_dir
-        self.clean_dir = clean_dir
-        self.report_file = report_file
+    def __init__(self, raw_dir=None, invalid_dir=None,
+                 clean_dir=None, report_file=None):
+        self.raw_dir = raw_dir or _P('data', 'raw')
+        self.invalid_dir = invalid_dir or _P('data', 'raw', 'invalid')
+        self.clean_dir = clean_dir or _P('data', 'clean')
+        self.report_file = report_file or _P('data_cleaning_report.txt')
         
         self.required_columns = ['trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
         self.column_mapping = {'trade_date': 'date', 'vol': 'volume'}

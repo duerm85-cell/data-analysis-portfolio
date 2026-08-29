@@ -13,8 +13,11 @@ import torch.nn as nn
 import json
 import sqlite3
 import hashlib
+import hmac
+import secrets
 from sklearn.metrics import accuracy_score
 from scipy.stats import spearmanr
+from data_quality import build_quality_report
 import contextlib
 
 warnings.filterwarnings('ignore')
@@ -47,8 +50,32 @@ def _get_db_conn():
     return conn
 
 
-def _hash_password(username, password):
-    return hashlib.sha256((username + password).encode('utf-8')).hexdigest()
+PASSWORD_ITERATIONS = 240_000
+
+
+def _hash_password(_username, password, salt=None):
+    """生成带随机盐的 PBKDF2 密码摘要；用户名参数仅为兼容旧调用。"""
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        'sha256', password.encode('utf-8'), salt, PASSWORD_ITERATIONS
+    )
+    return f"pbkdf2_sha256${PASSWORD_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def _verify_password(username, password, stored_hash):
+    if stored_hash.startswith('pbkdf2_sha256$'):
+        try:
+            _, iterations, salt_hex, expected_hex = stored_hash.split('$', 3)
+            actual = hashlib.pbkdf2_hmac(
+                'sha256', password.encode('utf-8'), bytes.fromhex(salt_hex), int(iterations)
+            )
+            return hmac.compare_digest(actual.hex(), expected_hex), False
+        except (TypeError, ValueError):
+            return False, False
+
+    # 兼容旧版 SHA-256 账号，登录成功后立即升级摘要。
+    legacy = hashlib.sha256((username + password).encode('utf-8')).hexdigest()
+    return hmac.compare_digest(legacy, stored_hash), True
 
 
 def db_register(username, password):
@@ -66,13 +93,31 @@ def db_register(username, password):
 
 def db_login(username, password):
     conn = _get_db_conn()
-    row = conn.execute('SELECT * FROM users WHERE username=? AND password_hash=?',
-                       (username, _hash_password(username, password))).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        row = conn.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+        if row is None:
+            return None
+        is_valid, is_legacy = _verify_password(username, password, row['password_hash'])
+        if not is_valid:
+            return None
+        if is_legacy:
+            conn.execute(
+                'UPDATE users SET password_hash=? WHERE username=?',
+                (_hash_password(username, password), username),
+            )
+            conn.commit()
+        return dict(row)
+    finally:
+        conn.close()
 
 
 def db_update_user(username, **kwargs):
+    allowed_fields = {'theme', 'top_n', 'watchlist'}
+    invalid_fields = set(kwargs) - allowed_fields
+    if invalid_fields:
+        raise ValueError(f"不允许更新字段: {sorted(invalid_fields)}")
+    if not kwargs:
+        return
     conn = _get_db_conn()
     sets = ', '.join([f"{k}=?" for k in kwargs.keys()])
     vals = list(kwargs.values()) + [username]
@@ -223,30 +268,62 @@ LIGHT_CSS = """<style>
 </style>
 """
 
+PRO_DARK_CSS = """<style>
+    .stApp { background: #07111F !important; font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+    [data-testid="stSidebar"] { background: #0B1625 !important; border-right: 1px solid #1D2A3A !important; box-shadow: none !important; }
+    [data-testid="stHeader"] { background: rgba(7,17,31,.94) !important; border-bottom: 1px solid #1D2A3A !important; }
+    .main-title, .dashboard-title { color: #F4F7FB !important; background: none !important; -webkit-text-fill-color: #F4F7FB !important; animation: none !important; text-align: left !important; font-size: 32px !important; font-weight: 720 !important; letter-spacing: -.02em; margin: 4px 0 20px !important; }
+    .section-title { color: #E7EDF5 !important; font-size: 20px !important; font-weight: 650 !important; border-left: 3px solid #27C2D1 !important; padding-left: 12px !important; margin: 22px 0 14px !important; }
+    .metric-card, .dashboard-metric, .card, .stCard { background: #0D1A2B !important; border: 1px solid #1D2E43 !important; border-radius: 12px !important; box-shadow: none !important; backdrop-filter: none !important; padding: 18px !important; }
+    .metric-value, .dashboard-metric-value { color: #EAF6F7 !important; background: none !important; -webkit-text-fill-color: #EAF6F7 !important; font-size: 32px !important; font-weight: 720 !important; }
+    .metric-label, .dashboard-metric-label { color: #8FA1B7 !important; font-size: 13px !important; font-weight: 500 !important; }
+    .divider { height: 1px !important; background: #1D2A3A !important; margin: 24px 0 !important; }
+    .stButton button { background: #123047 !important; border: 1px solid #22506B !important; border-radius: 8px !important; box-shadow: none !important; font-size: 14px !important; padding: 9px 16px !important; }
+    .stButton button:hover { background: #173C57 !important; border-color: #27C2D1 !important; transform: none !important; box-shadow: none !important; }
+    .custom-info-box { background: #0D1A2B !important; border: 1px solid #1D2E43 !important; border-radius: 10px !important; }
+</style>"""
+
+PRO_LIGHT_CSS = """<style>
+    .stApp { background: #F3F6FA !important; font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+    [data-testid="stSidebar"] { background: #FFFFFF !important; border-right: 1px solid #DDE5EE !important; box-shadow: none !important; }
+    [data-testid="stHeader"] { background: rgba(243,246,250,.94) !important; border-bottom: 1px solid #DDE5EE !important; }
+    .main-title, .dashboard-title { color: #132033 !important; background: none !important; -webkit-text-fill-color: #132033 !important; animation: none !important; text-align: left !important; font-size: 32px !important; font-weight: 720 !important; letter-spacing: -.02em; margin: 4px 0 20px !important; }
+    .section-title { color: #1A293D !important; font-size: 20px !important; font-weight: 650 !important; border-left: 3px solid #168A9A !important; padding-left: 12px !important; margin: 22px 0 14px !important; }
+    .metric-card, .dashboard-metric, .card, .stCard { background: #FFFFFF !important; border: 1px solid #DDE5EE !important; border-radius: 12px !important; box-shadow: none !important; padding: 18px !important; }
+    .metric-value, .dashboard-metric-value { color: #17334A !important; background: none !important; -webkit-text-fill-color: #17334A !important; font-size: 32px !important; font-weight: 720 !important; }
+    .metric-label, .dashboard-metric-label { color: #6D7E91 !important; font-size: 13px !important; font-weight: 500 !important; }
+    .divider { height: 1px !important; background: #DDE5EE !important; margin: 24px 0 !important; }
+    .stButton button { background: #126E82 !important; border: 1px solid #126E82 !important; border-radius: 8px !important; box-shadow: none !important; font-size: 14px !important; padding: 9px 16px !important; }
+    .stButton button:hover { background: #0E5C6D !important; transform: none !important; box-shadow: none !important; }
+    .custom-info-box { background: #FFFFFF !important; border: 1px solid #DDE5EE !important; border-radius: 10px !important; }
+</style>"""
+
 
 def apply_theme(theme):
     if theme == '浅色主题':
         st.markdown(LIGHT_CSS, unsafe_allow_html=True)
+        st.markdown(PRO_LIGHT_CSS, unsafe_allow_html=True)
     else:
         st.markdown(DARK_CSS, unsafe_allow_html=True)
+        st.markdown(PRO_DARK_CSS, unsafe_allow_html=True)
 
 
 def get_theme_colors(theme):
     if theme == '浅色主题':
         return {
-            'plot_bg': 'white', 'paper_bg': 'white',
-            'font_color': '#333333', 'grid_color': '#e0e0e0',
+            'plot_bg': '#FFFFFF', 'paper_bg': '#FFFFFF',
+            'font_color': '#243448', 'grid_color': '#E3E9F0',
             'legend_bg': 'rgba(255,255,255,0.95)', 'legend_border': '#E0E0E0',
-            'accent': '#2E86AB', 'positive': '#E74C3C', 'negative': '#666666',
-            'secondary_text': '#888888', 'muted_text': '#27ae60', 'success': '#f39c12',
+            'accent': '#126E82', 'positive': '#D94B4B', 'negative': '#1F9D72',
+            'secondary_text': '#6D7E91', 'muted_text': '#1F9D72', 'success': '#D6912A',
         }
     else:
         return {
-            'plot_bg': 'white', 'paper_bg': 'white',
-            'font_color': '#333333', 'grid_color': '#e0e0e0',
-            'legend_bg': 'rgba(255,255,255,0.95)', 'legend_border': '#cccccc',
-            'accent': '#2E86AB', 'positive': '#E74C3C', 'negative': '#666666',
-            'secondary_text': '#888888', 'muted_text': '#27ae60', 'success': '#f39c12',
+            'plot_bg': '#0D1A2B', 'paper_bg': '#0D1A2B',
+            'font_color': '#DCE6F2', 'grid_color': '#22344A',
+            'legend_bg': 'rgba(13,26,43,0.95)', 'legend_border': '#2B4058',
+            'accent': '#27C2D1', 'positive': '#F05A67', 'negative': '#33C58E',
+            'secondary_text': '#8FA1B7', 'muted_text': '#33C58E', 'success': '#E8A84B',
         }
 
 
@@ -335,11 +412,32 @@ def load_data():
     df_sentiment = None
     df_results = None
     factors_path = os.path.join(data_path, 'all_factors.parquet')
-    if os.path.exists(factors_path):
+    database_path = os.path.join(base_dir, 'data', 'stock_data.db')
+    if os.path.exists(database_path):
+        conn = sqlite3.connect(database_path)
+        try:
+            factor_count = conn.execute('SELECT COUNT(*) FROM factors').fetchone()[0]
+            if factor_count:
+                df_factors = pd.read_sql_query('SELECT * FROM factors', conn)
+                if 'date' in df_factors.columns:
+                    df_factors['date'] = pd.to_datetime(df_factors['date'], errors='coerce')
+        except sqlite3.Error:
+            df_factors = None
+        finally:
+            conn.close()
+    if df_factors is None and os.path.exists(factors_path):
         df_factors = pd.read_parquet(factors_path)
+    if df_factors is None:
+        factors_csv_path = os.path.join(data_path, 'all_factors.csv')
+        if os.path.exists(factors_csv_path):
+            df_factors = pd.read_csv(factors_csv_path, parse_dates=['date'])
     sentiment_path = os.path.join(data_path, 'sentiment_data.parquet')
     if os.path.exists(sentiment_path):
         df_sentiment = pd.read_parquet(sentiment_path)
+    else:
+        sentiment_csv_path = os.path.join(data_path, 'sentiment_data.csv')
+        if os.path.exists(sentiment_csv_path):
+            df_sentiment = pd.read_csv(sentiment_csv_path, parse_dates=['date'])
     results_dir = os.path.join(base_dir, 'results_optimized')
     if os.path.exists(results_dir):
         results_files = [f for f in os.listdir(results_dir) if f.endswith('.csv') and 'metrics' in f]
@@ -350,14 +448,8 @@ def load_data():
 
 
 def st_card():
-    """创建一个卡片容器，返回一个上下文管理器"""
-    import contextlib
-    @contextlib.contextmanager
-    def _card():
-        st.markdown('<div class="stCard">', True)
-        yield
-        st.markdown('</div>', True)
-    return _card()
+    """使用 Streamlit 原生边框容器，确保组件真正处于同一个 DOM 卡片内。"""
+    return st.container(border=True)
 
 
 def classify_board(code):
@@ -1487,8 +1579,8 @@ def show_backtest():
     df_bt = df_bt.sort_values('date').reset_index(drop=True)
     dates = df_bt['date']
     equity = df_bt['equity_curve']
-    strat_cum = equity / equity.iloc[0] - 1
-    bench_cum = df_bt['benchmark_equity'] / df_bt['benchmark_equity'].iloc[0] - 1
+    strat_cum = df_bt['cumulative_return'] - 1
+    bench_cum = df_bt['benchmark_cumulative'] - 1
     drawdown_arr = equity / equity.cummax() - 1
 
     win_rate = float(m['win_rate'])
@@ -1501,15 +1593,52 @@ def show_backtest():
     bench_total = float(m['benchmark_total_return'])
     init_capital = float(m['initial_capital'])
     n_per_day = int(m['n_stocks_per_day'])
+    benchmark_name = str(m.get('benchmark_name', '股票池等权基准'))
+    average_turnover = float(m.get('average_turnover', 0))
+    has_cost_model = 'commission_rate' in df_metrics.columns
+    commission_rate = float(m.get('commission_rate', 0))
+    stamp_duty_rate = float(m.get('stamp_duty_rate', 0))
     start_d = dates.iloc[0].strftime('%Y-%m-%d')
     end_d = dates.iloc[-1].strftime('%Y-%m-%d')
 
     st.markdown(f"""
         <div class="custom-info-box">
             <p style="margin: 0;">⚙️ 回测配置（真实回测结果，由 <code>backtest.py</code> 按滚动窗口 Walk-Forward 生成）：</p>
-            <p style="margin: 5px 0 0 20px;">- 回测区间：<b>{start_d} ~ {end_d}</b> ｜ 初始资金：<b>{init_capital:,.0f}</b> ｜ 每日持股：<b>{n_per_day} 只</b></p>
+            <p style="margin: 5px 0 0 20px;">- 回测区间：<b>{start_d} ~ {end_d}</b> ｜ 初始资金：<b>{init_capital:,.0f}</b> ｜ 每日持股：<b>{n_per_day} 只</b> ｜ 平均换手：<b>{average_turnover:.1%}</b></p>
         </div>
     """, unsafe_allow_html=True)
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>📋 每日持仓明细</div>", unsafe_allow_html=True)
+    if df_hold is not None and not df_hold.empty:
+        bt_dates = sorted(df_bt['date'].dt.date.unique())
+        min_bt_date, max_bt_date = bt_dates[0], bt_dates[-1]
+        filter_col1, filter_col2 = st.columns(2)
+        with filter_col1:
+            bt_start = st.date_input("起始日期", value=min_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_hold_start')
+        with filter_col2:
+            bt_end = st.date_input("结束日期", value=max_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_hold_end')
+        df_hold_f = df_hold[(df_hold['date'].dt.date >= bt_start) & (df_hold['date'].dt.date <= bt_end)].copy()
+        if not df_hold_f.empty:
+            df_hold_f = df_hold_f.sort_values(['date', 'code'])
+            df_show = pd.DataFrame({
+                '日期': df_hold_f['date'].dt.strftime('%Y-%m-%d'),
+                '股票代码': df_hold_f['code'].apply(lambda x: str(int(x)).zfill(6)),
+                '预测收益': df_hold_f['predicted'].round(4),
+                '实际收益': df_hold_f['actual'].round(4),
+            })
+            st.dataframe(df_show, use_container_width=True, height=380)
+            csv_data = df_show.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 下载持仓明细 CSV",
+                data=csv_data,
+                file_name=f'每日持仓明细_{bt_start}_{bt_end}.csv',
+                mime='text/csv',
+                key='download_holdings_csv'
+            )
+        else:
+            st.info("该日期范围内无持仓记录")
+    else:
+        st.info("未找到每日持仓文件（backtest_results/daily_portfolios.csv）")
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'>🎯 回测指标</div>", unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
@@ -1546,7 +1675,7 @@ def show_backtest():
                 </div>
                 <div>
                     <div style='display:flex; justify-content:space-between; font-size:14px; color:{txt}; margin-bottom:5px;'>
-                        <span>📉 沪深300</span><b style='color:#e67e22;'>{bench_total:+.1%}</b>
+                        <span>📉 {benchmark_name}</span><b style='color:#e67e22;'>{bench_total:+.1%}</b>
                     </div>
                     <div style='background:{track}; border-radius:6px; height:16px;'>
                         <div style='width:{w_bench:.0f}%; height:100%; border-radius:6px; background:linear-gradient(90deg,#e67e22,#f5b041);'></div>
@@ -1560,7 +1689,7 @@ def show_backtest():
     with st_card():
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=dates, y=strat_cum, name='策略净值', line=dict(color=colors['accent'], width=2.5), mode='lines'))
-        fig.add_trace(go.Scatter(x=dates, y=bench_cum, name='沪深300', line=dict(color=colors['success'], width=2, dash='dot'), showlegend=True))
+        fig.add_trace(go.Scatter(x=dates, y=bench_cum, name=benchmark_name, line=dict(color=colors['success'], width=2, dash='dot'), showlegend=True))
         fig.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 策略净值曲线', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=50, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), tickformat='%Y'), yaxis=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
@@ -1570,50 +1699,117 @@ def show_backtest():
         fig_dd.add_hline(y=0, line_dash='dash', line_color='rgba(128,128,128,0.5)')
         fig_dd.update_layout(height=260, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📉 动态回撤曲线', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
         st.plotly_chart(fig_dd, use_container_width=True, config={'displayModeBar': True})
-    st.markdown("""
+    cost_description = (
+        f"佣金单边 {commission_rate:.2%}、卖出印花税 {stamp_duty_rate:.2%}"
+        if has_cost_model else "旧结果未计入交易成本，请重新运行 backtest.py"
+    )
+    st.markdown(f"""
         <div class="custom-info-box">
             <p style="margin: 0;">💡 回测说明（真实口径）：</p>
             <p style="margin: 5px 0 0 20px;">- 策略：基于多因子综合评分（动量、RSI、MACD、波动率等）排序，每日买入评分最高的前 N 只股票</p>
             <p style="margin: 5px 0 0 20px;">- 成交口径：T 日收盘后生成信号，T+1 日收盘价成交（T+1 规则，避免未来函数）</p>
             <p style="margin: 5px 0 0 20px;">- 模型：XGBoost 滚动窗口 Walk-Forward 训练，仅用历史窗口数据，杜绝数据泄露</p>
-            <p style="margin: 5px 0 0 20px;">- 交易成本：包含佣金与印花税；基准：沪深300</p>
+            <p style="margin: 5px 0 0 20px;">- 交易成本：{cost_description}；基准：{benchmark_name}</p>
         </div>
-        """, unsafe_allow_html=True)
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>📋 每日持仓明细</div>", unsafe_allow_html=True)
-    if df_hold is not None and not df_hold.empty:
-        bt_dates = sorted(df_bt['date'].dt.date.unique())
-        min_bt_date, max_bt_date = bt_dates[0], bt_dates[-1]
-        filter_col1, filter_col2 = st.columns(2)
-        with filter_col1:
-            bt_start = st.date_input("起始日期", value=min_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_hold_start')
-        with filter_col2:
-            bt_end = st.date_input("结束日期", value=max_bt_date, min_value=min_bt_date, max_value=max_bt_date, key='bt_hold_end')
-        df_hold_f = df_hold[(df_hold['date'].dt.date >= bt_start) & (df_hold['date'].dt.date <= bt_end)].copy()
-        if not df_hold_f.empty:
-            df_hold_f = df_hold_f.sort_values(['date', 'code'])
-            df_show = pd.DataFrame({
-                '日期': df_hold_f['date'].dt.strftime('%Y-%m-%d'),
-                '股票代码': df_hold_f['code'].apply(lambda x: str(int(x)).zfill(6)),
-                '预测收益': df_hold_f['predicted'].round(4),
-                '实际收益': df_hold_f['actual'].round(4),
-            })
-            st.dataframe(df_show, use_container_width=True, height=380)
-            csv_data = df_show.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(
-                label="📥 下载持仓明细 CSV",
-                data=csv_data,
-                file_name=f'每日持仓明细_{bt_start}_{bt_end}.csv',
-                mime='text/csv',
-                key='download_holdings_csv'
+    """, unsafe_allow_html=True)
+
+
+def show_data_platform():
+    """面向数据开发岗位的数据资产、质量和血缘监控首页。"""
+    st.markdown("<div class='main-title'>量化数据平台</div>", unsafe_allow_html=True)
+    st.caption("Market Data Lakehouse · 数据质量、存储服务与任务产物统一监控")
+    df_factors, _, _ = load_data()
+    if df_factors is None or df_factors.empty:
+        st.warning(
+            "尚未发现可用因子数据。运行 `python scripts/prepare_demo.py` 可生成明确标记的 Demo 数据并完成全链路入库。"
+        )
+        return
+
+    report = build_quality_report(df_factors)
+    latest_date = pd.to_datetime(report['end_date'])
+    freshness_days = max((pd.Timestamp.now().normalize() - latest_date).days, 0)
+    missing_cell_count = int(df_factors.isna().sum().sum())
+
+    columns = st.columns(5)
+    metric_values = [
+        (f"{report['row_count']:,}", "因子记录"),
+        (f"{report['stock_count']:,}", "股票数量"),
+        (report['end_date'], "数据水位"),
+        (f"{report['duplicate_key_count']:,}", "重复主键"),
+        (f"{freshness_days} 天", "数据延迟"),
+    ]
+    for column, (value, label) in zip(columns, metric_values):
+        with column:
+            st.markdown(
+                f"<div class='metric-card'><div class='metric-value'>{value}</div>"
+                f"<div class='metric-label'>{label}</div></div>",
+                unsafe_allow_html=True,
             )
-        else:
-            st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>该日期范围内无持仓记录</div>", unsafe_allow_html=True)
-    else:
-        st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>未找到每日持仓文件（backtest_results/daily_portfolios.csv）</div>", unsafe_allow_html=True)
 
+    st.markdown("<div class='section-title'>数据血缘与任务状态</div>", unsafe_allow_html=True)
+    raw_dir = _P('data', 'raw')
+    clean_dir = _P('data', 'clean')
+    stage_status = [
+        ("RAW", len(glob.glob(os.path.join(raw_dir, '*_daily.csv'))), "原始行情"),
+        ("CLEAN", len(glob.glob(os.path.join(clean_dir, '*_daily.csv'))), "质量校验"),
+        ("FEATURE", report['row_count'], "因子加工"),
+        ("SQLITE", report['row_count'] if os.path.exists(_P('data', 'stock_data.db')) else 0, "服务层"),
+    ]
+    stage_columns = st.columns(4)
+    for index, (stage, count, description) in enumerate(stage_status):
+        with stage_columns[index]:
+            status = "READY" if count else "WAITING"
+            status_color = "#33C58E" if count else "#E8A84B"
+            st.markdown(
+                f"<div class='metric-card' style='text-align:left;'>"
+                f"<div style='font-size:12px;color:{status_color};font-weight:700;'>{status}</div>"
+                f"<div style='font-size:20px;font-weight:700;margin:8px 0;'>{stage}</div>"
+                f"<div style='font-size:13px;color:#8FA1B7;'>{description} · {count:,}</div></div>",
+                unsafe_allow_html=True,
+            )
 
+    st.markdown("<div class='section-title'>数据质量概览</div>", unsafe_allow_html=True)
+    left, right = st.columns([1.5, 1])
+    with left:
+        quality_frame = pd.DataFrame(
+            {
+                '检查项': ['重复主键', '无效日期', 'OHLC 异常', '缺失单元格'],
+                '异常数': [
+                    report['duplicate_key_count'],
+                    report['invalid_date_count'],
+                    report['invalid_ohlc_count'],
+                    missing_cell_count,
+                ],
+            }
+        )
+        fig_quality = px.bar(
+            quality_frame,
+            x='检查项',
+            y='异常数',
+            color='异常数',
+            color_continuous_scale=['#33C58E', '#E8A84B', '#F05A67'],
+        )
+        colors = get_theme_colors('浅色主题' if st.session_state.get('theme') == 'light' else '深色主题')
+        fig_quality.update_layout(
+            height=300,
+            showlegend=False,
+            coloraxis_showscale=False,
+            plot_bgcolor=colors['plot_bg'],
+            paper_bgcolor=colors['paper_bg'],
+            font=dict(color=colors['font_color']),
+            margin=dict(l=30, r=20, t=20, b=30),
+            yaxis=dict(gridcolor=colors['grid_color']),
+        )
+        st.plotly_chart(fig_quality, use_container_width=True, config={'displayModeBar': False})
+    with right:
+        source_distribution = report.get('sentiment_source_distribution', {})
+        st.markdown("#### 数据口径")
+        st.write(f"覆盖区间：{report['start_date']} → {report['end_date']}")
+        st.write(f"字段数量：{report['column_count']}")
+        st.write(f"情绪来源：{source_distribution or {'not_available': report['row_count']}}")
+        st.write("存储策略：CSV/Parquet 加工层 + SQLite 参数化服务层")
 def main():
+    require_login = os.environ.get('QUANT_REQUIRE_LOGIN', '0') == '1'
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
     if 'username' not in st.session_state:
@@ -1625,16 +1821,19 @@ def main():
     if 'top_n' not in st.session_state:
         st.session_state.top_n = 20
 
-    if not st.session_state.logged_in:
+    if require_login and not st.session_state.logged_in:
         show_login_page()
         return
+    if not require_login and not st.session_state.username:
+        st.session_state.username = 'demo'
 
     theme = st.session_state.get('theme', 'dark')
     apply_theme('浅色主题' if theme == 'light' else '深色主题')
 
-    st.sidebar.title("🔧 功能模块")
-    st.sidebar.markdown(f"👤 **{st.session_state.username}**")
-    if st.sidebar.button("退出登录", use_container_width=True, key='logout_btn'):
+    st.sidebar.title("Quant Data Platform")
+    st.sidebar.caption("量化数据开发与研究工作台")
+    st.sidebar.markdown(f"用户：**{st.session_state.username}**")
+    if require_login and st.sidebar.button("退出登录", use_container_width=True, key='logout_btn'):
         st.session_state.logged_in = False
         st.session_state.username = ''
         st.rerun()
@@ -1652,9 +1851,9 @@ def main():
             db_update_user(st.session_state.username, theme='dark')
         st.rerun()
     st.sidebar.markdown("### 📱 页面导航")
-    pages = [('🚀 炫酷大屏', 'dashboard'), ('📊 系统概览', 'overview'), ('📊 数据洞察', 'data_insight'), ('📈 因子分析', 'factor'), ('💬 情绪分析', 'sentiment'), ('🎯 股票预测', 'prediction'), ('📊 策略回测', 'backtest')]
+    pages = [('数据平台', 'platform'), ('市场总览', 'dashboard'), ('系统概览', 'overview'), ('数据洞察', 'data_insight'), ('因子研究', 'factor'), ('情绪分析', 'sentiment'), ('模型预测', 'prediction'), ('策略回测', 'backtest')]
     page_labels = [p[0] for p in pages]
-    page = st.sidebar.radio("", page_labels, index=0, label_visibility='collapsed', key='main_page')
+    page = st.sidebar.radio("页面导航", page_labels, index=0, label_visibility='collapsed', key='main_page')
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ⭐ 自选股管理")
     df_factors, _, _ = load_data()
@@ -1700,19 +1899,21 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("© 2026 股票量化分析系统")
 
-    if page == "🚀 炫酷大屏":
+    if page == "数据平台":
+        show_data_platform()
+    elif page == "市场总览":
         show_dashboard()
-    elif page == "📊 系统概览":
+    elif page == "系统概览":
         show_system_overview()
-    elif page == "📊 数据洞察":
+    elif page == "数据洞察":
         show_data_insight()
-    elif page == "📈 因子分析":
+    elif page == "因子研究":
         show_factor_analysis()
-    elif page == "💬 情绪分析":
+    elif page == "情绪分析":
         show_sentiment_analysis()
-    elif page == "🎯 股票预测":
+    elif page == "模型预测":
         show_prediction()
-    elif page == "📊 策略回测":
+    elif page == "策略回测":
         show_backtest()
 
 

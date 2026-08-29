@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pandas as pd
+
 from database_manager import StockDatabase, _P
 
 
@@ -51,6 +53,32 @@ class StockDatabaseTest(unittest.TestCase):
             with self.subTest(days=invalid_days):
                 with self.assertRaises(ValueError):
                     self.database.get_latest_data("600519", days=invalid_days)
+
+    def test_parquet_import_upserts_and_preserves_dynamic_factor_columns(self):
+        first_frame = pd.DataFrame(
+            {
+                "code": ["600519", "000001"],
+                "date": ["2026-01-02", "2026-01-02"],
+                "ret": [0.01, -0.02],
+                "momentum_20d": [0.12, -0.08],
+            }
+        )
+        updated_frame = first_frame.iloc[[0]].copy()
+        updated_frame["momentum_20d"] = 0.25
+
+        with patch("database_manager.os.path.exists", return_value=True):
+            with patch("database_manager.pd.read_parquet", return_value=first_frame):
+                with patch("builtins.print"):
+                    self.database.import_from_parquet("factors.parquet", chunk_size=1)
+            with patch("database_manager.pd.read_parquet", return_value=updated_frame):
+                with patch("builtins.print"):
+                    self.database.import_from_parquet("factors.parquet")
+
+        result = self.database.query(
+            "SELECT code, momentum_20d FROM factors WHERE code = ?", ("600519",)
+        )
+        self.assertEqual(self.database.get_data_count()["factors_count"], 4)
+        self.assertAlmostEqual(result.iloc[0]["momentum_20d"], 0.25)
 
 
 if __name__ == "__main__":

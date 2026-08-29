@@ -1,6 +1,6 @@
 # 数据开发 · 量化分析作品集 | Data Engineering & Quant Analysis Portfolio
 
-> 数据科学与大数据技术 · Python · SQL · 金融数据清洗与落库 · SQLite/MySQL · 量化回测
+> 数据科学与大数据技术 · Python / SQL / PySpark · 数据质量与分层存储 · 量化研究
 
 ## 👋 About Me
 
@@ -13,10 +13,10 @@
 ## 🛠️ Skills
 
 - **Programming:** Python (Pandas / NumPy)
-- **Database / SQL:** MySQL（课程系统学习）· SQLite（项目实战）· SQL 建表 / 查询 / 聚合
+- **Database / SQL:** MySQL（课程系统学习）· SQLite（项目实战）· 参数化查询 / 唯一约束 / 增量 Upsert / 分析 SQL
 - **Financial Data:** Tushare · AKShare · SnowNLP（金融数据源接入与文本情绪处理）
 - **Data Analysis:** Statistics, Scipy, Scikit-learn
-- **Big Data:** Hadoop, Spark
+- **Big Data:** Hadoop（课程学习）· PySpark（项目批处理、窗口函数、分区 Parquet）
 - **Visualization:** Matplotlib, Plotly, Streamlit
 - **Machine Learning:** XGBoost, PyTorch (LSTM)
 - **Development Tools:** Git, Linux, VS Code
@@ -29,26 +29,28 @@
 
 围绕 A 股市场构建多因子量化分析框架，自主完成从原始数据采集（Tushare/Akshare）、本地数据仓库搭建（SQLite）、因子挖掘与机器学习建模（XGBoost/PyTorch），到滚动窗口回测及 Web 交互看板（Streamlit）的全链路开发。
 
-- 代码与完整说明：👉 [`projects/01-a-stock-quant-analysis/`](projects/01-a-stock-quant-analysis/)
-- 技术栈：`Python` `Pandas` `NumPy` `PyTorch` `XGBoost` `Streamlit` `Matplotlib` `SQLite` `Tushare` `Akshare` `SnowNLP`
+- 代码、架构和一键 Demo：👉 [`projects/01-a-stock-quant-analysis/`](projects/01-a-stock-quant-analysis/)
+- 技术栈：`Python` `SQL` `Pandas` `PySpark` `SQLite` `PyTorch` `XGBoost` `Streamlit` `Tushare` `SnowNLP`
 
 **主要方向：**
 
-- A 股金融数据获取与清洗落库（Tushare / Akshare + 新闻舆情，raw → clean → processed → SQLite 分层存储，53 万行行情）
+- A 股金融数据获取与清洗落库（行情 + 新闻舆情，raw → clean → processed → SQLite 分层存储）
 - 多因子构建与标准化处理（动量、趋势、波动、情绪共 24+ 因子）
 - 因子有效性分析（IC、IR、分组检验）
 - 市场情绪指标研究（SnowNLP 情感打分）
 - 因子相关性分析（多因子去重与相关性热力图）
-- 量化策略回测（Top-N 选股、T+1 日频换仓、严格防止未来信息泄漏）
+- 量化策略回测（Top-N 选股、T+1 日频换仓、交易成本、真实基准/降级基准显式标注）
 - 数据可视化（Streamlit 交互式仪表盘：大盘概览 / 因子分析 / 预测回测）
 
 **已做的工程化保证：**
 
 - ✅ **T+1 成交回测**：T 日因子选股，T+1 日收益作为成交口径，不存在同 bar 信息优势
 - ✅ **防止数据泄漏**：滚动 Walk-Forward 验证，标准化 scaler 仅在训练窗口 fit，不偷看测试集分布
+- ✅ **可复现数据链路**：一条命令生成带来源标签的 Demo，贯通 raw → clean → processed → SQLite
+- ✅ **数据工程质量**：参数化 SQL、事务化分块 upsert、质量报告、PySpark 分区加工、自动化测试与 CI
 - ✅ **Token 脱敏**：Tushare/AKShare 通过环境变量读取，不在代码中硬编码密钥
 - ✅ **完整依赖清单**：`requirements.txt` 版本锁定 + `run_app.bat` 一键启动
-- ✅ **Streamlit 应用**：`streamlit run app_pro.py` 即可打开完整交互界面
+- ✅ **Streamlit 数据平台**：展示数据血缘、新鲜度、质量状态、因子分析、预测与回测
 
 ## 📈 Currently Learning
 

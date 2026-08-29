@@ -4,6 +4,12 @@ import numpy as np
 import os
 from datetime import datetime
 
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _P(*parts):
+    return os.path.join(_BASE_DIR, *parts)
+
 def calculate_technical_factors(df):
     """计算技术因子"""
     print("计算技术因子...")
@@ -83,18 +89,26 @@ def merge_sentiment_factors(df, stock_code):
     """合并情绪因子"""
     print(f"\n合并 {stock_code} 的情绪因子...")
 
-    sentiment_path = './data/processed/sentiment_data.parquet'
+    sentiment_candidates = [
+        _P('data', 'processed', 'sentiment_data.parquet'),
+        _P('data', 'processed', 'sentiment_data.csv'),
+    ]
+    sentiment_path = next((path for path in sentiment_candidates if os.path.exists(path)), None)
 
-    if not os.path.exists(sentiment_path):
+    if sentiment_path is None:
         print("未找到情感数据文件，添加默认情感因子...")
         df['sentiment'] = 0
         df['sentiment_ma5'] = 0
         df['sentiment_ma10'] = 0
         df['comment_count'] = 0
+        df['sentiment_source'] = 'not_available'
         return df
 
     try:
-        sentiment_df = pd.read_parquet(sentiment_path)
+        if sentiment_path.endswith('.parquet'):
+            sentiment_df = pd.read_parquet(sentiment_path)
+        else:
+            sentiment_df = pd.read_csv(sentiment_path)
 
         # 筛选该股票的情感数据
         if 'code' in sentiment_df.columns:
@@ -106,6 +120,7 @@ def merge_sentiment_factors(df, stock_code):
             df['sentiment_ma5'] = 0
             df['sentiment_ma10'] = 0
             df['comment_count'] = 0
+            df['sentiment_source'] = 'not_available'
             return df
 
         # 确保日期格式一致
@@ -113,17 +128,21 @@ def merge_sentiment_factors(df, stock_code):
         sentiment_df['date'] = pd.to_datetime(sentiment_df['date'])
 
         # 合并情感数据
+        if 'data_source' not in sentiment_df.columns:
+            sentiment_df['data_source'] = 'legacy_unknown'
         df = df.merge(
-            sentiment_df[['date', 'sentiment', 'sentiment_ma5', 'sentiment_ma10', 'comment_count']],
+            sentiment_df[['date', 'sentiment', 'sentiment_ma5', 'sentiment_ma10', 'comment_count', 'data_source']],
             on='date',
             how='left'
         )
+        df = df.rename(columns={'data_source': 'sentiment_source'})
 
         # 填充缺失值
         sentiment_cols = ['sentiment', 'sentiment_ma5', 'sentiment_ma10', 'comment_count']
         for col in sentiment_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(0)
+        df['sentiment_source'] = df['sentiment_source'].fillna('not_available')
 
         print(f"成功合并情感因子，最终数据形状: {df.shape}")
         return df
@@ -134,6 +153,7 @@ def merge_sentiment_factors(df, stock_code):
         df['sentiment_ma5'] = 0
         df['sentiment_ma10'] = 0
         df['comment_count'] = 0
+        df['sentiment_source'] = 'not_available'
         return df
 
 
@@ -143,14 +163,18 @@ def main():
     print("=" * 60)
 
     # 路径设置
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    raw_path = os.path.join(base_dir, 'data', 'raw')
-    processed_path = os.path.join(base_dir, 'data', 'processed')
+    clean_path = _P('data', 'clean')
+    processed_path = _P('data', 'processed')
 
     os.makedirs(processed_path, exist_ok=True)
 
     # 获取所有股票文件
-    files = [f for f in os.listdir(raw_path) if f.endswith('_daily.csv')]
+    if not os.path.isdir(clean_path):
+        raise FileNotFoundError(
+            f"清洗数据目录不存在: {clean_path}，请先运行 data_preprocessing.py"
+        )
+
+    files = [f for f in os.listdir(clean_path) if f.endswith('_daily.csv')]
     print(f"\n找到 {len(files)} 个股票数据文件")
 
     all_dfs = []
@@ -158,7 +182,7 @@ def main():
     for i, file in enumerate(files):
         try:
             code = file.replace('_daily.csv', '')
-            file_path = os.path.join(raw_path, file)
+            file_path = os.path.join(clean_path, file)
             print(f"\n[{i+1}/{len(files)}] 处理 {code}...")
 
             # 读取数据
@@ -218,7 +242,11 @@ def main():
             df_all.to_parquet(parquet_path)
             print(f"✓ Parquet已保存: {parquet_path}")
         except Exception as e:
-            print(f"Parquet保存失败: {e}")
+            print(f"Parquet保存失败，继续使用CSV与SQLite: {e}")
+
+        from database_manager import StockDatabase
+        database = StockDatabase(_P('data', 'stock_data.db'))
+        database.import_dataframe(df_all)
 
         # 统计
         print(f"\n数据统计:")

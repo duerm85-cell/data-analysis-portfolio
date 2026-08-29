@@ -39,6 +39,7 @@ projects/01-a-stock-quant-analysis/data/clean/**
 !projects/01-a-stock-quant-analysis/data/clean/README.md
 projects/01-a-stock-quant-analysis/data/processed/**
 !projects/01-a-stock-quant-analysis/data/processed/README.md
+projects/01-a-stock-quant-analysis/data/spark_processed/**
 projects/01-a-stock-quant-analysis/data/*.db
 projects/01-a-stock-quant-analysis/results_optimized/**
 !projects/01-a-stock-quant-analysis/results_optimized/README.md
@@ -46,6 +47,8 @@ projects/01-a-stock-quant-analysis/backtest_results/**
 !projects/01-a-stock-quant-analysis/backtest_results/README.md
 projects/01-a-stock-quant-analysis/training_log.json
 projects/01-a-stock-quant-analysis/data_cleaning_report.txt
+projects/01-a-stock-quant-analysis/reports/**
+!projects/01-a-stock-quant-analysis/reports/README.md
 
 # 临时文件
 *.tmp

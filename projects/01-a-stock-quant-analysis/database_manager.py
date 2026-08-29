@@ -2,7 +2,7 @@
 import sqlite3
 import pandas as pd
 import os
-from datetime import datetime
+import re
 
 # ========== 路径基准：全部以本文件所在目录为根，不依赖 cwd ==========
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -85,13 +85,37 @@ class StockDatabase:
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_daily_code_date ON daily_data(code, date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_factors_code_date ON factors(code, date)')
+        cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_factors_code_date ON factors(code, date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sentiment_code_date ON sentiment(code, date)')
         
         conn.commit()
         conn.close()
         print(f"✅ 数据库初始化完成: {self.db_path}")
     
-    def import_from_parquet(self, parquet_path=None):
+    @staticmethod
+    def _validate_columns(columns):
+        invalid = [column for column in columns if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', column)]
+        if invalid:
+            raise ValueError(f"存在不安全的字段名: {invalid}")
+
+    @staticmethod
+    def _sqlite_type(dtype):
+        if pd.api.types.is_integer_dtype(dtype) or pd.api.types.is_bool_dtype(dtype):
+            return 'INTEGER'
+        if pd.api.types.is_float_dtype(dtype):
+            return 'REAL'
+        return 'TEXT'
+
+    def _ensure_factor_columns(self, conn, frame):
+        existing = {
+            row[1] for row in conn.execute('PRAGMA table_info(factors)').fetchall()
+        }
+        for column in frame.columns:
+            if column not in existing:
+                column_type = self._sqlite_type(frame[column].dtype)
+                conn.execute(f'ALTER TABLE factors ADD COLUMN "{column}" {column_type}')
+
+    def import_from_parquet(self, parquet_path=None, chunk_size=5000):
         """从Parquet文件导入数据。
 
         未指定路径时，默认导入数据流水线生成的因子文件。
@@ -103,18 +127,58 @@ class StockDatabase:
         
         print(f"📂 正在从 {parquet_path} 导入数据...")
         df = pd.read_parquet(parquet_path)
-        
+        return self.import_dataframe(df, chunk_size=chunk_size)
+
+    def import_dataframe(self, df, chunk_size=5000):
+        """将因子 DataFrame 分块增量写入 SQLite。"""
+        required_columns = {'code', 'date'}
+        missing_columns = required_columns - set(df.columns)
+        if missing_columns:
+            raise ValueError(f"因子文件缺少必要字段: {sorted(missing_columns)}")
+        if not isinstance(chunk_size, int) or chunk_size <= 0:
+            raise ValueError("chunk_size 必须是正整数")
+
+        factors_df = df.copy()
+        # 空代码必须在字符串化前剔除，否则 NaN 会被写成无效的 ``000nan``。
+        factors_df = factors_df.dropna(subset=['code', 'date']).copy()
+        factors_df['code'] = factors_df['code'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
+        factors_df['date'] = pd.to_datetime(factors_df['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+        factors_df = factors_df.dropna(subset=['date'])
+        factors_df = factors_df.drop_duplicates(subset=['code', 'date'], keep='last')
+        columns = factors_df.columns.tolist()
+        self._validate_columns(columns)
+
+        quoted_columns = ', '.join(f'"{column}"' for column in columns)
+        placeholders = ', '.join('?' for _ in columns)
+        update_columns = [column for column in columns if column not in {'code', 'date'}]
+        update_clause = ', '.join(
+            f'"{column}" = excluded."{column}"' for column in update_columns
+        )
+        conflict_clause = (
+            f'DO UPDATE SET {update_clause}' if update_clause else 'DO NOTHING'
+        )
+        sql = (
+            f'INSERT INTO factors ({quoted_columns}) VALUES ({placeholders}) '
+            f'ON CONFLICT(code, date) {conflict_clause}'
+        )
+
         conn = sqlite3.connect(self.db_path)
-        
-        # 导入因子数据
-        factors_cols = ['code', 'date', 'ret', 'ma5', 'ma10', 'ma20', 'rsi', 'macd', 'sentiment', 'label']
-        factors_df = df[[col for col in factors_cols if col in df.columns]]
-        factors_df['date'] = pd.to_datetime(factors_df['date']).dt.strftime('%Y-%m-%d')
-        factors_df.to_sql('factors', conn, if_exists='replace', index=False)
-        
-        print(f"✅ 已导入 {len(factors_df):,} 条因子数据")
-        
-        conn.close()
+        try:
+            self._ensure_factor_columns(conn, factors_df)
+            for start in range(0, len(factors_df), chunk_size):
+                chunk = factors_df.iloc[start:start + chunk_size].astype(object)
+                chunk = chunk.where(pd.notna(chunk), None)
+                rows = list(chunk.itertuples(index=False, name=None))
+                conn.executemany(sql, rows)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        print(f"✅ 已增量写入 {len(factors_df):,} 条因子数据")
+        return len(factors_df)
     
     def query(self, sql, params=None):
         """执行只读 SQL 查询，并通过 params 绑定外部输入。"""

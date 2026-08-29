@@ -8,23 +8,24 @@ def main():
     try:
         # 使用绝对路径（先定义变量）
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        raw_path = os.path.join(base_dir, 'data', 'raw')
+        clean_path = os.path.join(base_dir, 'data', 'clean')
         processed_path = os.path.join(base_dir, 'data', 'processed')
 
         print(f"当前工作目录: {os.getcwd()}")
         print(f"基础目录: {base_dir}")
-        print(f"原始数据路径: {raw_path}")
+        print(f"清洗数据路径: {clean_path}")
         print(f"处理后数据路径: {processed_path}")
 
         # 确保目录存在
-        os.makedirs(raw_path, exist_ok=True)
         os.makedirs(processed_path, exist_ok=True)
 
-        print(f"原始数据目录存在: {os.path.exists(raw_path)}")
+        if not os.path.isdir(clean_path):
+            raise FileNotFoundError(f"清洗数据目录不存在: {clean_path}，请先运行 data_preprocessing.py")
+        print(f"清洗数据目录存在: {os.path.exists(clean_path)}")
         print(f"处理后数据目录存在: {os.path.exists(processed_path)}")
 
         # 获取股票文件
-        files = [f for f in os.listdir(raw_path) if f.endswith('_daily.csv')]
+        files = [f for f in os.listdir(clean_path) if f.endswith('_daily.csv')]
         print(f"找到 {len(files)} 个股票文件")
 
         # 按股票代码排序，确保处理顺序一致
@@ -40,26 +41,21 @@ def main():
             try:
                 # 提取股票代码
                 code = file.replace('_daily.csv', '')
-                file_path = os.path.join(raw_path, file)
+                file_path = os.path.join(clean_path, file)
 
                 # 读取数据
                 df = pd.read_csv(file_path)
                 total_rows_before += len(df)
 
                 # 确保必要的列存在
-                required_cols = ['trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']
+                required_cols = ['date', 'open', 'high', 'low', 'close', 'volume', 'amount']
                 if not all(col in df.columns for col in required_cols):
                     print(f"[{i}/{len(files)}] 跳过 {code}: 缺少必要列")
                     continue
 
-                # 重命名列（统一字段名）
-                df = df.rename(columns={
-                    'trade_date': 'date',
-                    'vol': 'volume'
-                })
-
                 # 转换日期格式
-                df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                df = df.dropna(subset=['date'])
 
                 # 按日期升序排列（确保时间序列正确，无未来信息泄露）
                 df = df.sort_values('date').reset_index(drop=True)
@@ -178,6 +174,10 @@ def main():
             df_all.to_parquet(parquet_path)
             parquet_size = os.path.getsize(parquet_path) / (1024 * 1024)
             print(f"Parquet文件保存成功! 文件大小: {parquet_size:.2f} MB")
+
+            from database_manager import StockDatabase
+            database = StockDatabase(os.path.join(base_dir, 'data', 'stock_data.db'))
+            database.import_dataframe(df_all)
 
             # 输出统计信息
             print(f"\n========== 数据处理统计 ==========")

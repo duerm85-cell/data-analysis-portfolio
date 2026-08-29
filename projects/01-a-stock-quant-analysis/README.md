@@ -1,200 +1,158 @@
-# A股多因子量化分析系统
+# A 股量化数据工程平台
 
-<p>
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white">
-  <img alt="Streamlit" src="https://img.shields.io/badge/Streamlit-1.50-%23FF4B4B?logo=streamlit&logoColor=white">
-  <img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-2.8-EE4C2C?logo=pytorch&logoColor=white">
-  <img alt="XGBoost" src="https://img.shields.io/badge/XGBoost-2.1-009999">
-  <img alt="Pandas" src="https://img.shields.io/badge/Pandas-2.1-150458?logo=pandas&logoColor=white">
-  <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
-</p>
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![PySpark](https://img.shields.io/badge/PySpark-optional-E25A1C?logo=apachespark&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-serving-003B57?logo=sqlite&logoColor=white)
+![CI](https://github.com/duerm85-cell/data-analysis-portfolio/actions/workflows/quality.yml/badge.svg)
 
-> 金融数据流水线 + 量化分析应用：Tushare/AKShare 数据获取 → 清洗校验 → 分层落盘（CSV / Parquet / SQLite）→ 因子计算 → XGBoost / BiLSTM 建模 → T+1 策略回测 → Streamlit 可视化大屏。
+这是一个从本科毕设演进而来的、可复现的量化数据开发项目。它覆盖行情采集、数据清洗、质量校验、因子加工、SQLite 服务层、机器学习、T+1 回测和 Streamlit 数据平台。原始数据、模型和结果均由流水线生成，不再提交大文件到 Git。
 
-一个可完整复现的 A 股数据工程与量化研究项目：管理 **364 只股票、53 万行日频行情**的分层存储（raw → clean → processed → SQLite），构建 24 个技术/情绪因子，用 XGBoost 与 BiLSTM 做涨跌方向预测，并以 T+1 成交口径进行 9 年滚动回测。项目重点保证**无数据泄露**的时间序列实验设计；代码与复现流程开源，原始数据、数据库、模型及运行结果由流水线在本地生成，不提交到 Git。
+项目重点不是展示一条“漂亮收益曲线”，而是展示一套可信的数据链路：明确数据来源、隔离训练/验证/测试集、使用真实基准或诚实标注降级基准、计入交易费用，并通过测试和 CI 防止回归。
 
-## 系统截图
+## 一分钟体验
 
-<p align="center">
-  <img src="docs/screenshots/main_panel.png" width="90%" alt="主界面 - 炫酷数据大屏">
-  <br><br>
-  <img src="docs/screenshots/factor_analysis.png" width="48%" alt="因子分析 - 价格走势 / RSI / MACD">
-  <img src="docs/screenshots/factor_ic_analysis.png" width="48%" alt="因子相关性热力图与因子IC实时分析">
-  <img src="docs/screenshots/prediction_panel.png" width="48%" alt="股票预测 - XGBoost / LSTM">
-  <img src="docs/screenshots/backtest_curve.png" width="48%" alt="策略回测 - 净值曲线与动态回撤">
-  <br>
-  <em>数据大屏 → 因子分析（技术指标）→ 因子相关性热力图 & IC 序列 → 股票预测 → 策略回测</em>
-</p>
+无需 Token，生成确定性的演示数据并跑通完整数据链路：
 
-## 功能模块
-
-| 模块 | 说明 |
-|------|------|
-| 🚀 数据大屏 | 全市场行情概览：股票总数、涨跌家数、涨跌幅榜、板块分布 |
-| 📊 系统洞察 | 成交量分布、市场统计与数据质量概览 |
-| 📈 因子分析 | 价格走势 / MA / RSI / MACD 可视化，因子相关性热力图，**因子 IC 序列实时分析**（IC 均值与标准差） |
-| 💬 情绪分析 | 基于 SnowNLP 的新闻文本情绪信号，融合为情绪因子 |
-| 🎯 股票预测 | XGBoost / BiLSTM 双模型涨跌方向预测，输出准确率、AUC、预测走势图 |
-| 📊 策略回测 | 读取真实回测结果：Top-N 选股、净值曲线、动态回撤、策略 vs 沪深300 对比 |
-
-## 金融数据流水线与存储
-
-```text
-Tushare / AKShare 行情 ──┐
-                         ├──> data_preprocessing ──> factor_engineering ──> model_training ──> backtest
-新闻文本 (SnowNLP) ──────┘         数据清洗/校验            24 个因子            XGBoost/BiLSTM      T+1 回测
-                                                                                Walk-Forward        |
-                                                                                                    v
-                                                                                Streamlit 应用 (app_pro.py) <── 读库/读结果
+```bash
+cd projects/01-a-stock-quant-analysis
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python scripts/prepare_demo.py
+python -m streamlit run app_pro.py
 ```
 
-**数据分层存储**（`data/`，对应数仓 ODS → DWD → DWS 的分层思想）：
+演示模式会生成 6 只股票、约 520 个交易日的数据，并明确写入 `synthetic_demo` 来源标签。应用默认直接进入平台；如需展示登录模块，设置 `QUANT_REQUIRE_LOGIN=1`。
 
-| 层 | 位置 | 内容 | 规模 |
-|----|------|------|------|
-| 原始层 | `data/raw/` | Tushare/AKShare 逐股票日线 CSV（贴源保存） | 364 只 A 股，2024-12-30 起 |
-| 清洗层 | `data/clean/` | 缺失/停牌处理、类型标准化后的标准行情表 | 364 只对齐日频行情 |
-| 加工层 | `data/processed/` | 24 因子宽表（Parquet / CSV） | 支撑 2017→2026 共 2366 个交易日回测 |
-| 服务层 | `data/stock_data.db` | **SQLite 行情库**，建表 / 批量写入 / SQL 聚合查询，供看板直接读库 | 53 万行记录 |
+## 架构与数据血缘
 
-**数据质量保障**：批量抓取容错与重试；缺失值 / 停牌日处理与类型校验；标签构造 `ret.shift(-1)` 与滚动窗口内拟合，从机制上杜绝未来函数对数据一致性的破坏。
+```mermaid
+flowchart LR
+    A[Tushare 行情 / HS300] --> B[data/raw 贴源层]
+    N[新闻文本 / 显式 demo 情绪] --> B
+    B --> C[data/clean 标准层]
+    C --> Q[质量规则与报告]
+    Q --> D[data/processed 因子层]
+    D --> S[(SQLite 服务层)]
+    D --> M[XGBoost / BiLSTM]
+    M --> T[T+1 含成本回测]
+    S --> V[Streamlit 数据平台]
+    T --> V
+    C -. 可选大规模链路 .-> P[PySpark / 分区 Parquet / Spark SQL]
+```
 
-## 因子体系
+| 数据层 | 位置 | 设计目的 |
+|---|---|---|
+| Raw / ODS | `data/raw/` | 保留逐股票贴源数据和基准数据，便于追溯 |
+| Clean / DWD | `data/clean/` | 字段统一、类型转换、去重、异常过滤 |
+| Processed / DWS | `data/processed/` | 技术/情绪因子宽表与模型标签 |
+| Serving / ADS | `data/stock_data.db` | 唯一键约束、分块 upsert、参数化查询，供看板消费 |
 
-共 24 个因子（`results_optimized/xgb_feature_list.txt`），分五类：
+## 工程能力
 
-| 类别 | 因子 |
-|------|------|
-| 动量 | `ret_5d` `momentum_20d` `reversal_5d` |
-| 趋势 | `ma5` `ma10` `ma20` `ma5_ma10_diff` `ma5_ma20_diff` `macd` `macd_signal` `rsi` |
-| 波动 | `volatility_20d` `volatility_60d` `bb_mid` `bb_position` `high_low_ratio` |
-| 量能 | `volume_ma5` `volume_ratio` `amount_ma20` `amount_ratio` `close_open_ratio` |
-| 情绪 | `sentiment` `sentiment_ma5` `sentiment_ma10` |
+- 数据采集：Tushare 行情和沪深 300 基准；日期窗口动态配置，Token 仅从环境变量读取。
+- 数据质量：覆盖行数、股票数、日期范围、重复键、空值率、OHLC 合法性，并输出 JSON 报告。
+- 数据库：动态安全建列、`(code, date)` 唯一索引、事务回滚、分块增量 upsert；查询不拼接用户输入。
+- 分布式处理：提供 PySpark 清洗、窗口因子、按年份分区 Parquet 和 Spark SQL 聚合链路。
+- 模型可信度：XGBoost 使用时间序列滚动验证；BiLSTM 按时间拆分 70/15/15，验证集用于早停，测试集只做最终评估。
+- 回测可信度：T 日信号对应 T+1 收益；支持佣金、印花税、换手率；优先读取真实沪深 300，缺失时明确显示“股票池等权基准”。
+- 来源治理：真实新闻与合成演示情绪严格区分；网络失败不会悄悄生成随机数据。
+- 基础安全：外部 SQL 输入参数绑定；演示账号使用带随机盐的 PBKDF2 摘要，并自动迁移旧摘要。
+- 可维护性：8 项单元/集成测试、Python 3.10/3.11 GitHub Actions、可移植 Windows 启动脚本。
 
-## 建模方法
+## 数据平台页面
 
-对 **XGBoost**（结构化表格数据）与 **BiLSTM**（20 个时间步的序列窗口，hidden=64×2 层）进行对比实验，任务为次日涨跌方向的二分类。
+Streamlit 首页改造成紧凑的专业数据平台，集中展示数据层状态、数据新鲜度、质量通过率和来源分布；同时保留市场概览、因子分析、情绪分析、模型预测与策略回测模块。
 
-**时间序列实验设计（避免数据泄露）：**
+<p align="center">
+  <img src="docs/screenshots/main_panel.png" width="88%" alt="Streamlit 市场分析界面">
+</p>
 
-- 标签采用 `ret.shift(-1)`，T 日信号对应 **T+1 日收盘收益**（T+1 成交口径）
-- 滚动窗口 Walk-Forward 训练：9 个时间窗口（2017 → 2026）逐年滚动训练与验证，所有统计量仅在训练窗口内拟合
-- `StandardScaler` 仅在训练窗口 `fit`，再对验证/测试窗口 `transform`，杜绝全量 fit 造成的未来信息泄露
+> 仓库内截图可能来自早期版本。运行演示流水线后可查看当前专业主题与数据平台首页。
 
-## 实验结果
-
-**模型对比**（训练日志 `training_log.json`，测试区间 2025-02 ~ 2026-04，约 2.1 万样本）：
-
-| 模型 | Accuracy | AUC | MSE |
-|------|----------|-----|-----|
-| XGBoost | 51.77% | 0.5346 | 0.2498 |
-| BiLSTM | 50.94% | 0.5328 | 0.2491 |
-
-**策略回测**（`backtest_results/`，2017-01 ~ 2026-04，共 2366 个交易日，初始资金 100 万，每日持仓 10 只）：
-
-| 指标 | 数值 | 指标 | 数值 |
-|------|------|------|------|
-| 累计收益率 | +140.0% | 年化收益率 | +10.7% |
-| 夏普比率 | 0.83 | 最大回撤 | -18.1% |
-| 年化波动率 | 13.0% | 日胜率 | 50.4% |
-| 基准（沪深300）累计 | +147.4% | 超额收益 | -7.3% |
-
-**结果解读**：模型预测力略高于随机水平（AUC ≈ 0.53），属于 A 股日频预测的常见量级；9 年回测取得正年化收益但未跑赢同期基准，超额收益为 -7.3%。项目如实呈现该结果，不做美化——如何在控制回撤的前提下提升超额收益，是模型的后续改进方向。
-
-## 项目结构
+## 目录结构
 
 ```text
 01-a-stock-quant-analysis/
-├── app_pro.py                           # Streamlit 主应用（登录/大屏/因子/预测/回测）
-├── fetch_stock_data.py                  # 行情数据抓取（Tushare，Token 走环境变量）
-├── fetch_sentiment.py                   # 新闻情绪数据抓取（SnowNLP）
-├── data_preprocessing.py                # 数据清洗与预处理
-├── factor_engineering.py                # 技术因子构建
-├── factor_engineering_with_sentiment.py # 情绪因子增强版
-├── database_manager.py                  # SQLite 数据管理
-├── model_training.py                    # XGBoost / BiLSTM 训练（Walk-Forward）
-├── backtest.py                          # T+1 成交口径策略回测
-├── requirements.txt                     # 依赖清单
-├── run_app.bat                          # Windows 一键启动脚本
-├── data/                                # raw / clean / processed 本地数据（Git 忽略）
-├── results_optimized/                   # 本地模型与训练结果（Git 忽略）
-├── backtest_results/                    # 本地回测结果（Git 忽略）
-└── docs/screenshots/                    # README 截图
+├── app_pro.py                            # Streamlit 数据平台
+├── fetch_stock_data.py                   # 行情与 HS300 基准采集
+├── fetch_sentiment.py                    # 真实/演示情绪采集（显式模式）
+├── data_preprocessing.py                 # Raw → Clean
+├── data_quality.py                       # 质量规则和 JSON 报告
+├── factor_engineering_with_sentiment.py  # Clean → 因子 → SQLite
+├── database_manager.py                   # 约束、upsert、参数化查询
+├── spark_pipeline.py                     # 可选 PySpark 批处理链路
+├── model_training.py                     # XGBoost / BiLSTM 时间序列训练
+├── backtest.py                           # T+1、成本与真实基准回测
+├── scripts/prepare_demo.py               # 一键可复现 Demo
+├── sql/analytics_queries.sql             # 分析 SQL
+├── tests/                                # 单元与端到端测试
+├── requirements.txt                      # 核心依赖
+└── requirements-spark.txt                # 可选 Spark 依赖
 ```
 
-## 快速开始
+## 使用真实数据
 
-### 1. 环境要求
+先设置 Tushare Token：
 
-- Windows 10 / 11 或 Linux
-- Python 3.10+
-- 建议使用 Anaconda / venv 虚拟环境
+```powershell
+$env:TUSHARE_TOKEN = "你的 Token"
+python fetch_stock_data.py
+python fetch_sentiment.py --mode real
+python data_preprocessing.py
+python factor_engineering_with_sentiment.py
+python model_training.py
+python backtest.py
+```
 
-### 2. 安装依赖
+如果只想演示情绪链路，必须显式执行 `python fetch_sentiment.py --mode demo`。
+
+| 环境变量 | 说明 |
+|---|---|
+| `TUSHARE_TOKEN` | Tushare 凭证，不写入仓库 |
+| `STOCK_DATA_START_DATE` | 采集起始日，格式 `YYYYMMDD` |
+| `STOCK_DATA_END_DATE` | 采集结束日，默认当前日期 |
+| `QUANT_REQUIRE_LOGIN` | 设为 `1` 时启用演示登录模块 |
+
+## PySpark 链路
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-spark.txt
+python spark_pipeline.py
 ```
 
-### 3. 配置数据源 Token
+该链路适合说明从单机 Pandas/SQLite 向大数据场景演进的思路，但项目不虚构 Kafka、Flink 等尚未落地的组件。
 
-在 [Tushare Pro](https://tushare.pro/) 注册获取 Token，设置为环境变量：
+## 验证
 
 ```bash
-# Windows (PowerShell)
-$env:TUSHARE_TOKEN = "你的token"
-# Linux / macOS
-export TUSHARE_TOKEN="你的token"
+python -m unittest discover -s tests -v
+python -m compileall -q .
 ```
 
-### 4. 数据准备（按顺序执行）
+CI 会在 Python 3.10 和 3.11 上执行相同检查。演示数据、数据库、模型、日志和回测产物均被 `.gitignore` 排除。
 
-```bash
-python fetch_stock_data.py                 # 抓取 A 股日线行情
-python fetch_sentiment.py                  # 抓取新闻情绪数据（可选）
-python data_preprocessing.py               # 数据清洗
-python factor_engineering_with_sentiment.py # 生成 24 因子数据集
-```
+## 关于实验结果
 
-### 5. 模型训练与回测
+旧毕设版本曾记录过模型和收益指标，但原回测把股票池等权收益误写为“沪深 300”，且未真实扣除交易成本，因此不再把这些数字作为当前版本结论。请运行修正后的训练和回测，以 `backtest_results/metrics.json` 为唯一结果来源；页面会同步显示基准来源与成本参数。这一处理比保留好看的旧数字更符合量化研究的可审计原则。
 
-```bash
-python model_training.py                   # XGBoost + BiLSTM（Walk-Forward）
-python backtest.py                         # 生成回测结果到 backtest_results/
-```
+## 岗位能力映射
 
-### 6. 启动应用
+| 目标岗位 | 可重点讲解的内容 |
+|---|---|
+| 量化数据开发 | 金融数据接入、因子宽表、时序隔离、基准与交易成本 |
+| 数据开发 | 分层模型、增量 upsert、质量规则、PySpark、分区 Parquet、CI |
+| 数据分析 / BI | 指标口径、分析 SQL、质量看板、交互式可视化、结论边界 |
+| Python 数据岗 | 模块化流水线、异常处理、配置化、测试和可复现 Demo |
 
-```bash
-python -m streamlit run app_pro.py --server.port 8501
-```
+## 局限与下一步
 
-或 Windows 下直接双击 `run_app.bat`，浏览器访问 `http://localhost:8501`。
+- 日频技术因子预测信号较弱，不构成实盘依据。
+- 当前 SQLite 服务层适合单机分析；分钟/Tick 级数据可演进至 ClickHouse 或 Doris。
+- 回测已考虑基础交易费用，但仍未完整模拟涨跌停、停牌、滑点和市场冲击。
+- 下一步可加入基本面 PIT 数据、任务调度、数据质量告警和容器化部署。
 
-> 首次运行时登录库 `data/users.db` 不在仓库中（不含任何账号信息），应用会自动初始化，切换到「📝 注册」标签页创建账号即可。行情、SQLite 数据库、模型与结果文件属于可再生成产物，不纳入版本控制；首次启动完整功能前，请按上面的步骤准备数据、训练模型并执行回测。
-
-## 技术栈
-
-| 类别 | 技术 | 用途 |
-|------|------|------|
-| 语言 | Python 3.10+ | 数据处理、建模与分析 |
-| 数据库 | **SQLite（SQL）** | 行情落库：建表、批量写入、聚合查询（技能可迁移至 MySQL / PostgreSQL） |
-| 数据处理 | Pandas, NumPy | 清洗、合并、时间序列处理 |
-| 数据源 | Tushare, AKShare | A 股行情与补充数据接入 |
-| 机器学习 | XGBoost, scikit-learn | 涨跌分类、特征重要性评估 |
-| 深度学习 | PyTorch (BiLSTM) | 时间序列预测 |
-| 回测 | 自研 T+1 回测引擎 | Top-N 选股、净值/回撤/超额计算 |
-| 可视化 | Plotly, Streamlit | 交互式分析与可视化大屏 |
-| 情绪分析 | SnowNLP | 新闻文本情绪因子 |
-
-## 局限性
-
-- A 股日频预测噪声极大，模型 AUC ≈ 0.53 的预测力有限，不构成任何实盘依据
-- 回测未完全模拟真实市场冲击成本与流动性约束，超额收益受样本区间影响明显
-- 因子以日频技术面为主，未纳入基本面与更细粒度的微观结构数据
-- 存储为单机 SQLite（50 万行级），满足日频场景；若扩展至分钟级 / Tick 级全市场数据，单文件库将成为写入与并发查询瓶颈，演进方向是列式存储（ClickHouse / Doris）配合流式增量管道（Kafka / Flink）
-
-> **免责声明**：本项目仅用于学习与技术研究，不构成任何投资建议。据此操作，风险自负。
+> 本项目仅用于学习、求职展示和技术研究，不构成投资建议。
 
 ## License
 

@@ -14,18 +14,17 @@ echo   脚本目录: %~dp0
 echo ========================================
 echo.
 
-REM 优先使用系统 Anaconda3 环境（已安装所有依赖）
-set PYTHON="C:\Users\Lenovo\anaconda3\python.exe"
+set "PYTHON_EXE=python"
+if exist ".venv\Scripts\python.exe" set "PYTHON_EXE=.venv\Scripts\python.exe"
 
-if exist %PYTHON% (
-    echo [OK] 找到 Python 环境
-    echo [OK] 正在启动 Streamlit 应用 (projects/01-a-stock-quant-analysis/app_pro.py)
-    echo.
-    echo 浏览器访问: http://localhost:8501
-    echo.
-    %PYTHON% -m streamlit run app_pro.py --server.port 8501 --server.headless true
-) else (
-    echo [ERROR] 找不到 Python 环境
-    echo 请确认 C:\Users\Lenovo\anaconda3\ 已正确安装
+%PYTHON_EXE% --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] 找不到 Python。请安装 Python 3.10+ 或在项目目录创建 .venv。
     pause
+    exit /b 1
 )
+
+echo [OK] 正在启动 Streamlit 应用
+echo 浏览器访问: http://localhost:8501
+echo.
+%PYTHON_EXE% -m streamlit run app_pro.py --server.port 8501 --server.headless true

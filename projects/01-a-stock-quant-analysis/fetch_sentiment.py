@@ -4,7 +4,12 @@ import pandas as pd
 import numpy as np
 import os
 import time
+import argparse
+import hashlib
 from datetime import datetime, timedelta
+from snownlp import SnowNLP
+
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_stock_news_sentiment(stock_code, days=30):
     """
@@ -62,6 +67,7 @@ def get_stock_news_sentiment(stock_code, days=30):
             'sentiment': 'mean',
             'news_count': 'sum'
         }).reset_index()
+        daily_sentiment['data_source'] = 'akshare_news_snownlp'
 
         print(f"成功获取 {len(daily_sentiment)} 天的情感数据")
         return daily_sentiment
@@ -116,6 +122,11 @@ def calculate_sentiment(text):
         return 0
 
     text = text.lower()
+
+    try:
+        return float(SnowNLP(text).sentiments * 2 - 1)
+    except Exception:
+        pass
 
     # 正面词汇
     positive_words = ['涨', '大涨', '反弹', '上涨', '利好', '突破', '创新高', '业绩增长',
@@ -177,32 +188,19 @@ def get_baidu_sentiment(stock_code, days=30):
                                 continue
 
         if not sentiment_data:
-            # 如果没有找到明确的情感列，生成模拟数据
-            print("未找到明确的情感数据，生成模拟数据用于演示...")
-            dates = pd.date_range(end=datetime.now(), periods=min(days, 30), freq='D')
-            sentiment_data = [{
-                'date': d,
-                'sentiment': np.random.uniform(-0.5, 0.5),
-                'comment_count': np.random.randint(100, 1000)
-            } for d in dates]
+            print("未找到可识别的日期/情感字段，不使用模拟数据冒充真实数据")
+            return pd.DataFrame(columns=['date', 'sentiment', 'comment_count', 'data_source'])
 
         result_df = pd.DataFrame(sentiment_data)
         result_df = result_df.drop_duplicates(subset=['date']).sort_values('date')
+        result_df['data_source'] = 'akshare_stock_comment'
 
         print(f"成功获取 {len(result_df)} 天的情感数据")
         return result_df
 
     except Exception as e:
         print(f"获取百度股吧情感数据失败: {e}")
-        # 返回模拟数据
-        print("返回模拟情感数据用于演示...")
-        dates = pd.date_range(end=datetime.now(), periods=min(days, 30), freq='D')
-        result_df = pd.DataFrame({
-            'date': dates,
-            'sentiment': np.random.uniform(-0.3, 0.3, len(dates)),
-            'comment_count': np.random.randint(100, 1000, len(dates))
-        })
-        return result_df
+        return pd.DataFrame(columns=['date', 'sentiment', 'comment_count', 'data_source'])
 
 
 def merge_sentiment_to_factors(factors_df, stock_code):
@@ -267,12 +265,13 @@ def generate_sample_sentiment_data(stock_codes, days=365):
         dates = pd.date_range(end=datetime.now(), periods=days, freq='D')
 
         # 生成带有自相关性的模拟情感数据
-        np.random.seed(hash(code) % 2**32)
-        base_sentiment = np.random.uniform(-0.3, 0.3, days)
+        seed = int.from_bytes(hashlib.sha256(code.encode('utf-8')).digest()[:4], 'big')
+        rng = np.random.default_rng(seed)
+        base_sentiment = rng.uniform(-0.3, 0.3, days)
 
         # 添加一些趋势和周期
         for i in range(1, days):
-            base_sentiment[i] = 0.7 * base_sentiment[i] + 0.3 * base_sentiment[i-1] + np.random.uniform(-0.1, 0.1)
+            base_sentiment[i] = 0.7 * base_sentiment[i] + 0.3 * base_sentiment[i-1] + rng.uniform(-0.1, 0.1)
 
         sentiment_df = pd.DataFrame({
             'code': code,
@@ -280,7 +279,8 @@ def generate_sample_sentiment_data(stock_codes, days=365):
             'sentiment': base_sentiment,
             'sentiment_ma5': pd.Series(base_sentiment).rolling(5, min_periods=1).mean().values,
             'sentiment_ma10': pd.Series(base_sentiment).rolling(10, min_periods=1).mean().values,
-            'comment_count': np.random.randint(50, 500, days)
+            'comment_count': rng.integers(50, 500, days),
+            'data_source': 'synthetic_demo',
         })
 
         all_sentiment.append(sentiment_df)
@@ -293,32 +293,47 @@ def generate_sample_sentiment_data(stock_codes, days=365):
     return result
 
 
-if __name__ == "__main__":
-    # 测试情感因子获取
-    print("=" * 60)
-    print("测试情感因子获取功能")
-    print("=" * 60)
+def main():
+    parser = argparse.ArgumentParser(description='抓取或生成显式标记的情绪因子')
+    parser.add_argument('--mode', choices=['real', 'demo'], default='real')
+    parser.add_argument('--codes', nargs='+', default=['600519', '000858', '300750', '601318', '000001'])
+    parser.add_argument('--days', type=int, default=365)
+    args = parser.parse_args()
 
-    # 测试单只股票
-    sentiment = get_baidu_sentiment('600519', days=30)
-    print(f"\n贵州茅台最近30天情感数据:\n{sentiment.head(10)}")
+    if args.mode == 'demo':
+        all_sentiment = generate_sample_sentiment_data(args.codes, days=args.days)
+    else:
+        frames = []
+        for code in args.codes:
+            frame = get_stock_news_sentiment(code, days=args.days)
+            if not frame.empty:
+                frame['code'] = code
+                frame['comment_count'] = 0
+                frames.append(frame)
+        if not frames:
+            raise RuntimeError('没有获取到真实新闻情绪数据；如需演示，请显式使用 --mode demo')
+        all_sentiment = pd.concat(frames, ignore_index=True)
+        all_sentiment['sentiment_ma5'] = all_sentiment.groupby('code')['sentiment'].transform(
+            lambda values: values.rolling(5, min_periods=1).mean()
+        )
+        all_sentiment['sentiment_ma10'] = all_sentiment.groupby('code')['sentiment'].transform(
+            lambda values: values.rolling(10, min_periods=1).mean()
+        )
 
-    # 测试市场情绪
-    market_sentiment = get_market_sentiment(days=30)
-    print(f"\n市场情绪数据:\n{market_sentiment.head(10)}")
-
-    # 生成多只股票的情感数据
-    stock_codes = ['600519', '000858', '300750', '601318', '000001']
-    all_sentiment = generate_sample_sentiment_data(stock_codes, days=365)
-
-    # 保存情感数据
-    output_dir = './data/processed'
+    output_dir = os.path.join(_BASE_DIR, 'data', 'processed')
     os.makedirs(output_dir, exist_ok=True)
 
     sentiment_path = os.path.join(output_dir, 'sentiment_data.parquet')
-    all_sentiment.to_parquet(sentiment_path)
-    print(f"\n情感数据已保存到: {sentiment_path}")
+    sentiment_csv_path = os.path.join(output_dir, 'sentiment_data.csv')
+    all_sentiment.to_csv(sentiment_csv_path, index=False)
+    try:
+        all_sentiment.to_parquet(sentiment_path, index=False)
+        print(f"\n情感数据已保存到: {sentiment_path}")
+    except ImportError:
+        print(f"\n未安装 Parquet 引擎，已保存 CSV: {sentiment_csv_path}")
 
-    print("\n" + "=" * 60)
-    print("情感因子获取完成!")
-    print("=" * 60)
+    print(f"数据来源: {sorted(all_sentiment['data_source'].unique())}")
+
+
+if __name__ == "__main__":
+    main()

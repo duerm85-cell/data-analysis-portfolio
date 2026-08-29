@@ -19,9 +19,14 @@ def _P(*parts):
 class StockBacktester:
     """股票回测器"""
 
-    def __init__(self):
+    def __init__(self, output_dir=None, n_stocks=10, initial_capital=1_000_000,
+                 commission_rate=0.0003, stamp_duty_rate=0.0005):
         self.results_dir = _P('results_optimized')
-        self.output_dir = './backtest_results'
+        self.output_dir = output_dir or _P('backtest_results')
+        self.n_stocks = n_stocks
+        self.initial_capital = initial_capital
+        self.commission_rate = commission_rate
+        self.stamp_duty_rate = stamp_duty_rate
         os.makedirs(self.output_dir, exist_ok=True)
 
     def load_data(self):
@@ -46,6 +51,10 @@ class StockBacktester:
         """加载预测结果"""
         print("\n加载预测结果...")
 
+        if not os.path.isdir(self.results_dir):
+            print("错误: 预测结果目录不存在!")
+            return None
+
         predictions_files = [f for f in os.listdir(self.results_dir) 
                             if f.startswith('test_predictions_') and f.endswith('.csv')]
 
@@ -62,7 +71,43 @@ class StockBacktester:
         print(f"预测结果加载完成: {len(predictions_df):,} 条记录")
         return predictions_df
 
-    def simple_strategy_backtest(self, predictions_df):
+    def load_benchmark(self):
+        """加载沪深300指数，并将 T+1 收益对齐到 T 日信号日期。"""
+        candidates = [
+            _P('data', 'processed', 'benchmark_hs300.parquet'),
+            _P('data', 'processed', 'benchmark_hs300.csv'),
+            _P('data', 'raw', 'benchmark_hs300.csv'),
+        ]
+        benchmark_path = next((path for path in candidates if os.path.exists(path)), None)
+        if benchmark_path is None:
+            print("警告: 未找到沪深300指数文件，将使用股票池等权基准")
+            return None, '股票池等权基准', 'universe_equal_weight'
+
+        if benchmark_path.endswith('.parquet'):
+            benchmark = pd.read_parquet(benchmark_path)
+        else:
+            benchmark = pd.read_csv(benchmark_path)
+
+        date_col = 'date' if 'date' in benchmark.columns else 'trade_date'
+        if date_col not in benchmark.columns or 'close' not in benchmark.columns:
+            raise ValueError(f"基准文件缺少日期或 close 列: {benchmark_path}")
+
+        date_values = benchmark[date_col].astype(str).str.replace(r'\.0$', '', regex=True)
+        benchmark['date'] = pd.to_datetime(date_values, errors='coerce')
+        benchmark['close'] = pd.to_numeric(benchmark['close'], errors='coerce')
+        benchmark = benchmark.dropna(subset=['date', 'close']).sort_values('date')
+        benchmark = benchmark.drop_duplicates(subset=['date'], keep='last')
+        benchmark['benchmark_return'] = benchmark['close'].pct_change().shift(-1)
+        print(f"沪深300基准加载完成: {benchmark_path}")
+        return (
+            benchmark[['date', 'benchmark_return']].dropna(),
+            '沪深300',
+            os.path.relpath(benchmark_path, _BASE_DIR),
+        )
+
+    def simple_strategy_backtest(self, predictions_df, benchmark_df=None,
+                                 benchmark_name='股票池等权基准',
+                                 benchmark_source='universe_equal_weight'):
         """简单策略回测
 
         回测机制：
@@ -77,14 +122,23 @@ class StockBacktester:
         """
         print("\n开始简单策略回测...")
 
+        required_columns = {'date', 'code', 'predicted', 'actual'}
+        missing_columns = required_columns - set(predictions_df.columns)
+        if missing_columns:
+            raise ValueError(f"预测结果缺少列: {sorted(missing_columns)}")
+
         df = predictions_df.copy()
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df['predicted'] = pd.to_numeric(df['predicted'], errors='coerce')
+        df['actual'] = pd.to_numeric(df['actual'], errors='coerce')
+        df = df.dropna(subset=['date', 'code', 'predicted', 'actual'])
 
         print(f"回测时间范围: {df['date'].min()} 至 {df['date'].max()}")
         print(f"回测股票数量: {df['code'].nunique()}")
 
         # 每日选股策略：选择预测收益率最高的N只股票
-        N = 10  # 每日选择10只股票
-        initial_capital = 1000000  # 初始资金100万
+        N = self.n_stocks
+        initial_capital = self.initial_capital
 
         print(f"\n策略参数:")
         print(f"  每日选股数: {N}")
@@ -93,6 +147,7 @@ class StockBacktester:
 
         results = []
         daily_portfolios = []
+        previous_codes = set()
 
         # 按日期分组处理
         for date, group in df.groupby('date'):
@@ -105,14 +160,32 @@ class StockBacktester:
 
             # T+1 日实现收益 = actual = ret.shift(-1)
             # 即：T 日选股，T+1 日按 close-to-close 成交
-            portfolio_return = selected['actual'].mean()
+            gross_return = selected['actual'].mean()
+            current_codes = set(selected['code'].astype(str))
+            if previous_codes:
+                sold_weight = len(previous_codes - current_codes) / len(previous_codes)
+                bought_weight = len(current_codes - previous_codes) / len(current_codes)
+                turnover = 0.5 * (sold_weight + bought_weight)
+                transaction_cost = (
+                    sold_weight * (self.commission_rate + self.stamp_duty_rate)
+                    + bought_weight * self.commission_rate
+                )
+            else:
+                turnover = 1.0
+                transaction_cost = self.commission_rate
+
+            portfolio_return = gross_return - transaction_cost
+            previous_codes = current_codes
 
             results.append({
                 'date': date,
                 'portfolio_return': portfolio_return,
                 'n_stocks': len(selected),
                 'avg_predicted_return': selected['predicted'].mean(),
-                'avg_actual_return': selected['actual'].mean()
+                'gross_return': gross_return,
+                'transaction_cost': transaction_cost,
+                'turnover': turnover,
+                'avg_actual_return': gross_return,
             })
 
             # 记录每日持仓
@@ -126,30 +199,47 @@ class StockBacktester:
 
         results_df = pd.DataFrame(results)
         results_df = results_df.sort_values('date').reset_index(drop=True)
+        if results_df.empty:
+            raise ValueError("没有可用于回测的有效预测记录")
 
         # 计算累积收益率
         results_df['cumulative_return'] = (1 + results_df['portfolio_return']).cumprod()
         results_df['equity_curve'] = initial_capital * results_df['cumulative_return']
 
-        # 计算基准：等权持有所有股票
-        all_stock_returns = df.groupby('date')['actual'].mean()
-        benchmark_df = pd.DataFrame({'date': all_stock_returns.index, 'benchmark_return': all_stock_returns.values})
-        benchmark_df['benchmark_cumulative'] = (1 + benchmark_df['benchmark_return']).cumprod()
-        benchmark_df['benchmark_equity'] = initial_capital * benchmark_df['benchmark_cumulative']
+        # 没有指数文件时，明确退化为股票池等权基准，不冒充沪深300。
+        if benchmark_df is None:
+            all_stock_returns = df.groupby('date')['actual'].mean()
+            benchmark_df = pd.DataFrame({
+                'date': all_stock_returns.index,
+                'benchmark_return': all_stock_returns.values,
+            })
+            benchmark_name = '股票池等权基准'
+            benchmark_source = 'universe_equal_weight'
+        else:
+            benchmark_df = benchmark_df.copy()
+            benchmark_df['date'] = pd.to_datetime(benchmark_df['date'], errors='coerce')
+            benchmark_df = benchmark_df.dropna(subset=['date', 'benchmark_return'])
 
         # 合并结果
-        results_df = results_df.merge(benchmark_df, on='date', how='left')
+        results_df = results_df.merge(
+            benchmark_df[['date', 'benchmark_return']], on='date', how='left'
+        )
+        results_df = results_df.dropna(subset=['benchmark_return']).reset_index(drop=True)
+        if results_df.empty:
+            raise ValueError("策略日期与基准日期没有交集")
+        results_df['benchmark_cumulative'] = (1 + results_df['benchmark_return']).cumprod()
+        results_df['benchmark_equity'] = initial_capital * results_df['benchmark_cumulative']
 
         # 计算策略指标
         total_return = results_df['cumulative_return'].iloc[-1] - 1
         benchmark_total_return = results_df['benchmark_cumulative'].iloc[-1] - 1
         
         daily_returns = results_df['portfolio_return'].dropna()
-        annualized_return = (1 + daily_returns.mean()) ** 252 - 1
+        annualized_return = results_df['cumulative_return'].iloc[-1] ** (252 / len(daily_returns)) - 1
         annualized_volatility = daily_returns.std() * np.sqrt(252)
         
         if annualized_volatility > 0:
-            sharpe_ratio = annualized_return / annualized_volatility
+            sharpe_ratio = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
         else:
             sharpe_ratio = 0
 
@@ -170,7 +260,7 @@ class StockBacktester:
         print(f"  最大回撤: {max_drawdown:.2%}")
         print(f"  胜率: {win_rate:.2%}")
 
-        print(f"\n基准表现:")
+        print(f"\n基准表现 ({benchmark_name}):")
         print(f"  基准总收益率: {benchmark_total_return:.2%}")
         print(f"  策略vs基准超额收益: {total_return - benchmark_total_return:.2%}")
 
@@ -188,6 +278,12 @@ class StockBacktester:
             'sharpe_ratio': sharpe_ratio,
             'max_drawdown': max_drawdown,
             'win_rate': win_rate,
+            'average_turnover': results_df['turnover'].mean(),
+            'total_transaction_cost': results_df['transaction_cost'].sum(),
+            'commission_rate': self.commission_rate,
+            'stamp_duty_rate': self.stamp_duty_rate,
+            'benchmark_name': benchmark_name,
+            'benchmark_source': benchmark_source,
             'benchmark_total_return': benchmark_total_return,
             'excess_return': total_return - benchmark_total_return
         }
@@ -213,7 +309,13 @@ class StockBacktester:
             if predictions_df is None:
                 return
 
-            self.simple_strategy_backtest(predictions_df)
+            benchmark_df, benchmark_name, benchmark_source = self.load_benchmark()
+            self.simple_strategy_backtest(
+                predictions_df,
+                benchmark_df=benchmark_df,
+                benchmark_name=benchmark_name,
+                benchmark_source=benchmark_source,
+            )
 
             print("\n" + "="*60)
             print("回测完成!")

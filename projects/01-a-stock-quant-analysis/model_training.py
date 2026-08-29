@@ -550,13 +550,17 @@ def train_lstm_model():
     df = df.sort_values(['code', 'date']).reset_index(drop=True)
     print(f"过滤后样本数: {len(df):,}")
     data_range = f"{df['date'].min().strftime('%Y-%m-%d')} ~ {df['date'].max().strftime('%Y-%m-%d')}"
-    split_date = df['date'].quantile(0.8)
-    train_df = df[df['date'] <= split_date].copy()
-    test_df = df[df['date'] > split_date].copy()
+    train_end = df['date'].quantile(0.70)
+    validation_end = df['date'].quantile(0.85)
+    train_df = df[df['date'] <= train_end].copy()
+    validation_df = df[(df['date'] > train_end) & (df['date'] <= validation_end)].copy()
+    test_df = df[df['date'] > validation_end].copy()
     y_train_cls = (train_df['label'] > 0).astype(int)
+    y_validation_cls = (validation_df['label'] > 0).astype(int)
     y_test_cls = (test_df['label'] > 0).astype(int)
     scaler = StandardScaler()
     train_features = scaler.fit_transform(train_df[available_features])
+    validation_features = scaler.transform(validation_df[available_features])
     test_features = scaler.transform(test_df[available_features])
     time_steps = 20
 
@@ -572,13 +576,24 @@ def train_lstm_model():
         return np.array(X), np.array(y)
 
     X_train, y_train_ts = create_ts(train_features, y_train_cls.values, train_df['code'].values, time_steps)
+    X_validation, y_validation_ts = create_ts(
+        validation_features,
+        y_validation_cls.values,
+        validation_df['code'].values,
+        time_steps,
+    )
     X_test, y_test_ts = create_ts(test_features, y_test_cls.values, test_df['code'].values, time_steps)
-    print(f"训练数据: {X_train.shape}, 测试数据: {X_test.shape}")
-    if len(X_train) == 0 or len(X_test) == 0:
-        print("[错误] 时间序列数据为空!")
+    print(
+        f"训练数据: {X_train.shape}, 验证数据: {X_validation.shape}, "
+        f"测试数据: {X_test.shape}"
+    )
+    if len(X_train) == 0 or len(X_validation) == 0 or len(X_test) == 0:
+        print("[错误] 训练、验证或测试时间序列数据为空!")
         return
     X_train_t = torch.tensor(X_train, dtype=torch.float32)
     y_train_t = torch.tensor(y_train_ts, dtype=torch.float32)
+    X_validation_t = torch.tensor(X_validation, dtype=torch.float32)
+    y_validation_t = torch.tensor(y_validation_ts, dtype=torch.float32)
     X_test_t = torch.tensor(X_test, dtype=torch.float32)
     y_test_t = torch.tensor(y_test_ts, dtype=torch.float32)
     train_dataset = TensorDataset(X_train_t, y_train_t)
@@ -610,8 +625,8 @@ def train_lstm_model():
         train_loss /= len(train_loader.dataset)
         model.eval()
         with torch.no_grad():
-            val_outputs = model(X_test_t)
-            val_loss = criterion(val_outputs, y_test_t).item()
+            val_outputs = model(X_validation_t)
+            val_loss = criterion(val_outputs, y_validation_t).item()
         print(f"Epoch {epoch + 1}/{num_epochs} - train_loss: {train_loss:.6f}, val_loss: {val_loss:.6f}")
         if val_loss < best_val_loss:
             best_val_loss = val_loss
