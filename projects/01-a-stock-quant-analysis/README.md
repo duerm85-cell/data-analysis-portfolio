@@ -171,6 +171,8 @@ python -m streamlit run app_pro.py --server.port 8501
 
 或 Windows 下直接双击 `run_app.bat`，浏览器访问 `http://localhost:8501`。
 
+> 首次运行时登录库 `data/users.db` 不在仓库中（不含任何账号信息），应用会自动初始化，切换到「📝 注册」标签页创建账号即可。行情与模型文件均已随仓库提供，无需配置 Tushare Token 即可直接体验。
+
 ## 技术栈
 
 | 类别 | 技术 | 用途 |
