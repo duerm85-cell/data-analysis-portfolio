@@ -1,6 +1,6 @@
-# 数据分析作品集 | Data Analysis Portfolio
+# 数据开发 · 量化分析作品集 | Data Engineering & Quant Analysis Portfolio
 
-> 数据科学与大数据技术 · Python · SQL · 数据分析 · 量化分析
+> 数据科学与大数据技术 · Python · SQL · 金融数据清洗与落库 · SQLite/MySQL · 量化回测
 
 ## 👋 About Me
 
