@@ -32,6 +32,21 @@ env/
 *.log
 logs/
 
+# 量化项目生成物（数据、模型和回测结果由流水线本地生成）
+projects/01-a-stock-quant-analysis/data/raw/**
+!projects/01-a-stock-quant-analysis/data/raw/README.md
+projects/01-a-stock-quant-analysis/data/clean/**
+!projects/01-a-stock-quant-analysis/data/clean/README.md
+projects/01-a-stock-quant-analysis/data/processed/**
+!projects/01-a-stock-quant-analysis/data/processed/README.md
+projects/01-a-stock-quant-analysis/data/*.db
+projects/01-a-stock-quant-analysis/results_optimized/**
+!projects/01-a-stock-quant-analysis/results_optimized/README.md
+projects/01-a-stock-quant-analysis/backtest_results/**
+!projects/01-a-stock-quant-analysis/backtest_results/README.md
+projects/01-a-stock-quant-analysis/training_log.json
+projects/01-a-stock-quant-analysis/data_cleaning_report.txt
+
 # 临时文件
 *.tmp
 *.bak

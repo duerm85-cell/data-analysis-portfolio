@@ -14,6 +14,8 @@ class StockDatabase:
     
     def __init__(self, db_path=None):
         self.db_path = db_path or _P('data', 'stock_data.db')
+        db_dir = os.path.dirname(os.path.abspath(self.db_path))
+        os.makedirs(db_dir, exist_ok=True)
         self.init_database()
     
     def init_database(self):
@@ -90,7 +92,11 @@ class StockDatabase:
         print(f"✅ 数据库初始化完成: {self.db_path}")
     
     def import_from_parquet(self, parquet_path=None):
-        """从Parquet文件导入数据"""
+        """从Parquet文件导入数据。
+
+        未指定路径时，默认导入数据流水线生成的因子文件。
+        """
+        parquet_path = parquet_path or _P('data', 'processed', 'all_factors.parquet')
         if not os.path.exists(parquet_path):
             print(f"❌ 文件不存在: {parquet_path}")
             return
@@ -110,22 +116,26 @@ class StockDatabase:
         
         conn.close()
     
-    def query(self, sql):
-        """执行SQL查询"""
+    def query(self, sql, params=None):
+        """执行只读 SQL 查询，并通过 params 绑定外部输入。"""
         conn = sqlite3.connect(self.db_path)
-        result = pd.read_sql(sql, conn)
-        conn.close()
-        return result
+        try:
+            return pd.read_sql_query(sql, conn, params=params)
+        finally:
+            conn.close()
     
     def get_latest_data(self, code, days=30):
         """获取指定股票的最新数据"""
-        sql = f'''
+        if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
+            raise ValueError("days 必须是正整数")
+
+        sql = '''
             SELECT * FROM factors 
-            WHERE code = '{code}' 
+            WHERE code = ?
             ORDER BY date DESC 
-            LIMIT {days}
+            LIMIT ?
         '''
-        return self.query(sql)
+        return self.query(sql, (str(code), days))
     
     def get_stock_list(self):
         """获取所有股票列表"""

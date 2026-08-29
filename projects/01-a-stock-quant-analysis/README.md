@@ -11,7 +11,7 @@
 
 > 金融数据流水线 + 量化分析应用：Tushare/AKShare 数据获取 → 清洗校验 → 分层落盘（CSV / Parquet / SQLite）→ 因子计算 → XGBoost / BiLSTM 建模 → T+1 策略回测 → Streamlit 可视化大屏。
 
-一个可完整复现的 A 股数据工程与量化研究项目：管理 **364 只股票、53 万行日频行情**的分层存储（raw → clean → processed → SQLite），构建 24 个技术/情绪因子，用 XGBoost 与 BiLSTM 做涨跌方向预测，并以 T+1 成交口径进行 9 年滚动回测。项目重点保证**无数据泄露**的时间序列实验设计，数据、代码、结果全部开源。
+一个可完整复现的 A 股数据工程与量化研究项目：管理 **364 只股票、53 万行日频行情**的分层存储（raw → clean → processed → SQLite），构建 24 个技术/情绪因子，用 XGBoost 与 BiLSTM 做涨跌方向预测，并以 T+1 成交口径进行 9 年滚动回测。项目重点保证**无数据泄露**的时间序列实验设计；代码与复现流程开源，原始数据、数据库、模型及运行结果由流水线在本地生成，不提交到 Git。
 
 ## 系统截图
 
@@ -116,9 +116,9 @@ Tushare / AKShare 行情 ──┐
 ├── backtest.py                          # T+1 成交口径策略回测
 ├── requirements.txt                     # 依赖清单
 ├── run_app.bat                          # Windows 一键启动脚本
-├── data/                                # raw / clean / processed 数据目录
-├── results_optimized/                   # 模型、特征列表与逐窗口预测结果
-├── backtest_results/                    # 回测指标、每日净值与持仓明细
+├── data/                                # raw / clean / processed 本地数据（Git 忽略）
+├── results_optimized/                   # 本地模型与训练结果（Git 忽略）
+├── backtest_results/                    # 本地回测结果（Git 忽略）
 └── docs/screenshots/                    # README 截图
 ```
 
@@ -171,7 +171,7 @@ python -m streamlit run app_pro.py --server.port 8501
 
 或 Windows 下直接双击 `run_app.bat`，浏览器访问 `http://localhost:8501`。
 
-> 首次运行时登录库 `data/users.db` 不在仓库中（不含任何账号信息），应用会自动初始化，切换到「📝 注册」标签页创建账号即可。行情与模型文件均已随仓库提供，无需配置 Tushare Token 即可直接体验。
+> 首次运行时登录库 `data/users.db` 不在仓库中（不含任何账号信息），应用会自动初始化，切换到「📝 注册」标签页创建账号即可。行情、SQLite 数据库、模型与结果文件属于可再生成产物，不纳入版本控制；首次启动完整功能前，请按上面的步骤准备数据、训练模型并执行回测。
 
 ## 技术栈
 

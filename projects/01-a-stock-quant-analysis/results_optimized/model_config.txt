@@ -1,7 +1,0 @@
-input_size=24
-hidden_size=64
-num_layers=2
-dropout=0.2
-time_steps=20
-bidirectional=True
-task=classification
