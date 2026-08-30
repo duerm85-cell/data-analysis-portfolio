@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# 仅离线训练、模型预测和回测研究需要；公开只读部署不安装这些重依赖。
+torch==2.8.0
+xgboost==2.1.4
+scikit-learn==1.3.2
+matplotlib==3.9.4

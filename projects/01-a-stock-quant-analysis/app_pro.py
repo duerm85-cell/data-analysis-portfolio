@@ -8,16 +8,24 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 import warnings
-import torch
-import torch.nn as nn
 import json
 import sqlite3
 import hashlib
 import hmac
 import secrets
-from sklearn.metrics import accuracy_score
 from scipy.stats import spearmanr
 from data_quality import build_quality_report
+from portfolio_config import (
+    PORTFOLIO_BACKTEST_METRICS_PATH,
+    PORTFOLIO_BACKTEST_RESULTS_PATH,
+    PORTFOLIO_DAILY_PORTFOLIOS_PATH,
+    PORTFOLIO_FACTORS_PATH,
+    PORTFOLIO_MANIFEST_PATH,
+    PORTFOLIO_QUALITY_PATH,
+    PORTFOLIO_SENTIMENT_PATH,
+    PORTFOLIO_TRAINING_LOG_PATH,
+    is_portfolio_mode,
+)
 import contextlib
 
 warnings.filterwarnings('ignore')
@@ -29,6 +37,7 @@ def _P(*parts):
     return os.path.join(BASE_DIR, *parts)
 
 USER_DB_PATH = _P('data', 'users.db')
+PORTFOLIO_MODE = is_portfolio_mode()
 
 
 def _get_db_conn():
@@ -450,6 +459,21 @@ def load_data():
     factors_path = os.path.join(data_path, 'all_factors.parquet')
     database_path = os.path.join(base_dir, 'data', 'stock_data.db')
     sqlite_skip_reason = None
+    if PORTFOLIO_MODE:
+        if PORTFOLIO_FACTORS_PATH.exists():
+            source_label = '公开作品集 · 确定性合成演示行情'
+            if PORTFOLIO_MANIFEST_PATH.exists():
+                try:
+                    with open(PORTFOLIO_MANIFEST_PATH, 'r', encoding='utf-8') as file:
+                        source_label = json.load(file).get('source_label', source_label)
+                except (OSError, ValueError, TypeError):
+                    pass
+            df_factors = _prepare_factor_frame(
+                pd.read_parquet(PORTFOLIO_FACTORS_PATH), source_label
+            )
+        if PORTFOLIO_SENTIMENT_PATH.exists():
+            df_sentiment = pd.read_parquet(PORTFOLIO_SENTIMENT_PATH)
+        return df_factors, df_sentiment, df_results
     # 分析页面需要整张因子宽表：列式 Parquet 比 SQLite 全表逐行读取快得多。
     # SQLite 继续作为参数化查询服务层，并在 Parquet 不可用时兜底。
     if os.path.exists(factors_path):
@@ -511,7 +535,11 @@ def load_platform_quality_summary():
     df_factors, _, _ = load_data()
     if df_factors is None or df_factors.empty:
         return None, 0
-    report_path = _P('reports', 'data_quality.json')
+    report_path = (
+        str(PORTFOLIO_QUALITY_PATH)
+        if PORTFOLIO_MODE
+        else _P('reports', 'data_quality.json')
+    )
     if os.path.exists(report_path):
         try:
             with open(report_path, 'r', encoding='utf-8') as report_file:
@@ -520,6 +548,8 @@ def load_platform_quality_summary():
             if (
                 int(saved_report.get('row_count', -1)) == len(df_factors)
                 and saved_report.get('end_date') == current_end_date
+                and 'quality_status' in saved_report
+                and 'missing_details' in saved_report
             ):
                 missing_cell_count = saved_report.get('missing_cell_count')
                 if missing_cell_count is None:
@@ -610,7 +640,11 @@ def show_system_overview():
     _log_lstm_acc, _log_lstm_auc, _log_lstm_mse = 0.5094, 0.5328, 0.249148
     _training_metrics_loaded = False
     _comparison_source = '内置历史参考值（请重新训练）'
-    _training_log_path = _P('training_log.json')
+    _training_log_path = (
+        str(PORTFOLIO_TRAINING_LOG_PATH)
+        if PORTFOLIO_MODE
+        else _P('training_log.json')
+    )
     if os.path.exists(_training_log_path):
         try:
             with open(_training_log_path, 'r', encoding='utf-8') as f:
@@ -1024,22 +1058,6 @@ def show_sentiment_analysis():
         st.info(f"新闻示例加载中...")
 
 
-class LSTMModel(nn.Module):
-    def __init__(self, input_size=1, hidden_size=64, num_layers=2, output_size=1):
-        super(LSTMModel, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.2)
-        self.fc = nn.Linear(hidden_size, output_size)
-
-    def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-        out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, -1, :])
-        return out
-
-
 FULL_FEATURES = [
     'ret_5d', 'ma5', 'ma10', 'ma20', 'ma5_ma10_diff', 'ma5_ma20_diff',
     'rsi', 'macd', 'macd_signal', 'momentum_20d', 'reversal_5d',
@@ -1050,22 +1068,6 @@ FULL_FEATURES = [
     'sentiment', 'sentiment_ma5', 'sentiment_ma10',
 ]
 LSTM_TRAIN_FEATURES = ['ret_5d', 'ma5', 'ma10', 'rsi', 'macd', 'volatility_20d']
-
-
-class BiLSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size=64, num_layers=2, dropout=0.2):
-        super(BiLSTMModel, self).__init__()
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-                            num_layers=num_layers, batch_first=True,
-                            bidirectional=True, dropout=dropout if num_layers > 1 else 0)
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Sequential(nn.Linear(hidden_size * 2, 32), nn.ReLU(),
-                                nn.Dropout(0.2), nn.Linear(32, 1))
-
-    def forward(self, x):
-        out, _ = self.lstm(x)
-        out = self.dropout(out[:, -1, :])
-        return self.fc(out).squeeze(-1)
 
 
 def _predict_xgb(df_all, xgb_model_path, selected_code=None):
@@ -1117,8 +1119,35 @@ def _predict_xgb(df_all, xgb_model_path, selected_code=None):
 
 
 def _predict_lstm(df_all, lstm_model_path, selected_code=None):
+    import torch
+    import torch.nn as nn
     from sklearn.preprocessing import StandardScaler
     from sklearn.metrics import accuracy_score, roc_auc_score, mean_squared_error
+
+    class BiLSTMModel(nn.Module):
+        def __init__(self, input_size, hidden_size=64, num_layers=2, dropout=0.2):
+            super().__init__()
+            self.lstm = nn.LSTM(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+                bidirectional=True,
+                dropout=dropout if num_layers > 1 else 0,
+            )
+            self.dropout = nn.Dropout(dropout)
+            self.fc = nn.Sequential(
+                nn.Linear(hidden_size * 2, 32),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(32, 1),
+            )
+
+        def forward(self, x):
+            output, _ = self.lstm(x)
+            output = self.dropout(output[:, -1, :])
+            return self.fc(output).squeeze(-1)
+
     if not os.path.exists(lstm_model_path):
         return {'error': 'LSTM 模型文件不存在，请离线运行 python model_training.py'}
     try:
@@ -1212,7 +1241,12 @@ def show_prediction():
     if df_factors is None:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先处理数据</div>", unsafe_allow_html=True)
         return
-    if not os.path.exists(_P('training_log.json')):
+    training_log_path = (
+        str(PORTFOLIO_TRAINING_LOG_PATH)
+        if PORTFOLIO_MODE
+        else _P('training_log.json')
+    )
+    if not os.path.exists(training_log_path):
         st.warning(
             "现有模型文件缺少与当前数据快照对应的训练清单，属于历史产物。"
             "页面行情可以浏览，但模型指标与预测结果需重新训练后才可作为当前版本结论。"
@@ -1270,7 +1304,7 @@ def show_prediction():
             "```powershell\npython model_training.py\npython backtest.py\n```"
         )
     with st.expander("📊 训练日志", expanded=False):
-        log_path = _P('training_log.json')
+        log_path = training_log_path
         if os.path.exists(log_path):
             try:
                 with open(log_path, 'r', encoding='utf-8') as f:
@@ -1615,9 +1649,14 @@ def show_dashboard():
 @st.cache_data(ttl=600)
 def _load_backtest_results():
     """读取 backtest.py 输出的真实回测结果（T+1 成交口径）"""
-    metrics_path = _P('backtest_results', 'backtest_metrics.csv')
-    daily_path = _P('backtest_results', 'backtest_results.csv')
-    hold_path = _P('backtest_results', 'daily_portfolios.csv')
+    if PORTFOLIO_MODE:
+        metrics_path = str(PORTFOLIO_BACKTEST_METRICS_PATH)
+        daily_path = str(PORTFOLIO_BACKTEST_RESULTS_PATH)
+        hold_path = str(PORTFOLIO_DAILY_PORTFOLIOS_PATH)
+    else:
+        metrics_path = _P('backtest_results', 'backtest_metrics.csv')
+        daily_path = _P('backtest_results', 'backtest_results.csv')
+        hold_path = _P('backtest_results', 'daily_portfolios.csv')
     df_m = pd.read_csv(metrics_path) if os.path.exists(metrics_path) else None
     df_r = pd.read_csv(daily_path, parse_dates=['date']) if os.path.exists(daily_path) else None
     df_h = pd.read_csv(hold_path, parse_dates=['date']) if os.path.exists(hold_path) else None
@@ -1826,14 +1865,22 @@ def show_data_platform():
             )
 
     st.markdown("<div class='section-title'>数据血缘与任务状态</div>", unsafe_allow_html=True)
-    raw_dir = _P('data', 'raw')
-    clean_dir = _P('data', 'clean')
-    stage_status = [
-        ("RAW", len(glob.glob(os.path.join(raw_dir, '*_daily.csv'))), "原始行情"),
-        ("CLEAN", len(glob.glob(os.path.join(clean_dir, '*_daily.csv'))), "质量校验"),
-        ("FEATURE", report['row_count'], "因子加工"),
-        ("SQLITE", report['row_count'] if os.path.exists(_P('data', 'stock_data.db')) else 0, "服务层"),
-    ]
+    if PORTFOLIO_MODE:
+        stage_status = [
+            ("SOURCE", report['stock_count'], "确定性合成股票"),
+            ("FEATURE", report['row_count'], "因子展示样本"),
+            ("QUALITY", 1, f"质量状态 {report.get('quality_status', 'N/A')}"),
+            ("SERVING", report['row_count'], "Parquet 只读服务"),
+        ]
+    else:
+        raw_dir = _P('data', 'raw')
+        clean_dir = _P('data', 'clean')
+        stage_status = [
+            ("RAW", len(glob.glob(os.path.join(raw_dir, '*_daily.csv'))), "原始行情"),
+            ("CLEAN", len(glob.glob(os.path.join(clean_dir, '*_daily.csv'))), "质量校验"),
+            ("FEATURE", report['row_count'], "因子加工"),
+            ("SQLITE", report['row_count'] if os.path.exists(_P('data', 'stock_data.db')) else 0, "服务层"),
+        ]
     stage_columns = st.columns(4)
     for index, (stage, count, description) in enumerate(stage_status):
         with stage_columns[index]:
@@ -1850,29 +1897,36 @@ def show_data_platform():
     st.markdown("<div class='section-title'>数据质量概览</div>", unsafe_allow_html=True)
     left, right = st.columns([1.5, 1])
     with left:
-        quality_frame = pd.DataFrame(
-            {
-                '检查项': ['重复主键', '无效日期', 'OHLC 异常', '缺失单元格'],
-                '异常数': [
-                    report['duplicate_key_count'],
-                    report['invalid_date_count'],
-                    report['invalid_ohlc_count'],
-                    missing_cell_count,
-                ],
-            }
-        )
+        quality_frame = pd.DataFrame({
+            '检查项': [
+                '重复主键', '无效日期', 'OHLC 异常', '原始字段缺失',
+                '因子窗口缺失', '标签末期缺失', '未预期缺失',
+            ],
+            '异常数': [
+                report['duplicate_key_count'],
+                report['invalid_date_count'],
+                report['invalid_ohlc_count'],
+                report.get('raw_missing_cell_count', 0),
+                report.get('structural_factor_missing_count', 0),
+                report.get('structural_label_missing_count', 0),
+                report.get('unexpected_missing_cell_count', missing_cell_count),
+            ],
+            '状态': ['失败', '失败', '失败', '失败', '预期', '预期', '失败'],
+        })
+        quality_frame.loc[
+            (quality_frame['异常数'] == 0) & (quality_frame['状态'] == '失败'), '状态'
+        ] = '通过'
         fig_quality = px.bar(
             quality_frame,
             x='检查项',
             y='异常数',
-            color='异常数',
-            color_continuous_scale=['#33C58E', '#E8A84B', '#F05A67'],
+            color='状态',
+            color_discrete_map={'通过': '#33C58E', '预期': '#E8A84B', '失败': '#F05A67'},
         )
         colors = get_theme_colors('浅色主题' if st.session_state.get('theme') == 'light' else '深色主题')
         fig_quality.update_layout(
             height=300,
             showlegend=False,
-            coloraxis_showscale=False,
             plot_bgcolor=colors['plot_bg'],
             paper_bgcolor=colors['paper_bg'],
             font=dict(color=colors['font_color']),
@@ -1880,6 +1934,25 @@ def show_data_platform():
             yaxis=dict(gridcolor=colors['grid_color']),
         )
         st.plotly_chart(fig_quality, use_container_width=True, config={'displayModeBar': False})
+        missing_details = report.get('missing_details', {})
+        if missing_details:
+            category_labels = {
+                'structural_factor': '结构性因子缺失',
+                'structural_label': '结构性标签缺失',
+                'unexpected': '未预期缺失',
+            }
+            detail_frame = pd.DataFrame([
+                {
+                    '字段': column,
+                    '缺失数量': detail['count'],
+                    '缺失率': f"{detail['rate']:.2%}",
+                    '分类': category_labels.get(detail['category'], detail['category']),
+                    '原因与处理': detail['reason'],
+                }
+                for column, detail in missing_details.items()
+            ])
+            with st.expander("查看缺失字段明细", expanded=False):
+                st.dataframe(detail_frame, use_container_width=True, hide_index=True)
     with right:
         source_distribution = report.get('sentiment_source_distribution', {})
         st.markdown("#### 数据口径")
@@ -1887,13 +1960,32 @@ def show_data_platform():
         st.write(f"覆盖区间：{report['start_date']} → {report['end_date']}")
         st.write(f"字段数量：{report['column_count']}")
         st.write(f"情绪来源：{source_distribution or {'not_available': report['row_count']}}")
-        st.write("存储策略：CSV/Parquet 加工层 + SQLite 参数化服务层")
+        storage_label = (
+            "压缩 Parquet 只读展示层"
+            if PORTFOLIO_MODE
+            else "CSV/Parquet 加工层 + SQLite 参数化服务层"
+        )
+        st.write(f"存储策略：{storage_label}")
+        status = report.get('quality_status', 'N/A')
+        st.write(f"质量结论：{status}（结构性缺失记为提示，不记为原始数据失败）")
+        st.write(
+            "扩展检查："
+            f"非正价格 {report.get('nonpositive_price_count', 0)}、"
+            f"负成交量 {report.get('negative_volume_count', 0)}、"
+            f"零成交量 {report.get('zero_volume_count', 0)}、"
+            f"单日绝对收益超过 30% {report.get('extreme_return_count', 0)}"
+        )
+        if PORTFOLIO_MODE:
+            st.caption("公开交互行情为确定性合成演示数据；真实数据仅用于本地研究，不构成投资建议。")
         if 'legacy_unknown' in source_distribution:
             st.caption("情绪字段来自历史产物，来源尚未核验，不作为真实新闻情绪结论。")
 
 
 def main():
-    require_login = os.environ.get('QUANT_REQUIRE_LOGIN', '0') == '1'
+    require_login = (
+        os.environ.get('QUANT_REQUIRE_LOGIN', '0') == '1'
+        and not PORTFOLIO_MODE
+    )
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
     if 'username' not in st.session_state:
@@ -1908,12 +2000,14 @@ def main():
         show_login_page()
         return
     if not require_login and not st.session_state.username:
-        st.session_state.username = 'demo'
+        st.session_state.username = '访客' if PORTFOLIO_MODE else 'demo'
 
     apply_theme()
 
     st.sidebar.title("Quant Data Platform")
     st.sidebar.caption("量化数据开发与研究工作台")
+    if PORTFOLIO_MODE:
+        st.sidebar.info("公开作品集模式 · 合成演示行情 · 只读访问")
     st.sidebar.markdown(f"用户：**{st.session_state.username}**")
     if require_login and st.sidebar.button("退出登录", use_container_width=True, key='logout_btn'):
         st.session_state.logged_in = False
@@ -1932,9 +2026,10 @@ def main():
         current_watchlist = st.session_state.get('watchlist', [])
         valid_watchlist = [c for c in current_watchlist if c in all_codes]
         selected_watchlist = st.sidebar.multiselect("选择自选股", all_codes, default=valid_watchlist, key='watchlist_select')
-        if st.sidebar.button("💾 保存自选股", key='save_watchlist_btn'):
+        save_label = "保存到当前会话" if PORTFOLIO_MODE else "💾 保存自选股"
+        if st.sidebar.button(save_label, key='save_watchlist_btn'):
             st.session_state.watchlist = selected_watchlist
-            if st.session_state.username:
+            if st.session_state.username and not PORTFOLIO_MODE:
                 db_update_user(st.session_state.username, watchlist=json.dumps(selected_watchlist, ensure_ascii=False))
             st.session_state.watchlist_saved = True
             st.rerun()

@@ -27,6 +27,8 @@ env/
 
 # Streamlit
 .streamlit/
+!projects/01-a-stock-quant-analysis/.streamlit/
+!projects/01-a-stock-quant-analysis/.streamlit/config.toml
 
 # 日志
 *.log

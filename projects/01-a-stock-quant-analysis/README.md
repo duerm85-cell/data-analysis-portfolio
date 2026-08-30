@@ -24,6 +24,37 @@ python -m streamlit run app_pro.py
 
 演示模式会生成 6 只股票、约 520 个交易日的数据，并明确写入 `synthetic_demo` 来源标签。应用默认直接进入平台；如需展示登录模块，设置 `QUANT_REQUIRE_LOGIN=1`。
 
+## 在线作品集部署
+
+仓库包含一个使用固定随机种子生成的轻量演示数据包：50 只模拟股票、最近 3 年数据。它不复制或再分发 Tushare/AKShare 的逐日行情。完整真实数据库、原始行情、用户库和凭证仍不会提交到 Git。
+
+克隆仓库后，如果本地没有完整研究数据，应用会自动进入公开作品集模式：
+
+- 访客无需注册即可浏览全部只读页面；
+- 自选股只保存在当前浏览会话；
+- 页面明确显示合成演示行情、数据水位和非投资建议口径；
+- 不加载或写入本地用户数据库；
+- 不需要 Tushare Token。
+
+部署到 Streamlit Community Cloud 时，选择入口文件：
+
+```text
+projects/01-a-stock-quant-analysis/app_pro.py
+```
+
+如需在有完整本地数据的环境中强制预览公开模式：
+
+```powershell
+$env:QUANT_APP_MODE = "portfolio"
+python -m streamlit run app_pro.py
+```
+
+重新生成轻量合成数据包：
+
+```powershell
+python scripts/build_portfolio_dataset.py --stocks 50 --years 3
+```
+
 ## 架构与数据血缘
 
 ```mermaid
@@ -91,14 +122,16 @@ Streamlit 首页改造成紧凑的专业数据平台，集中展示数据层状�
 ├── sql/analytics_queries.sql             # 分析 SQL
 ├── tests/                                # 单元与端到端测试
 ├── requirements.txt                      # 核心依赖
+├── requirements-model.txt                # 离线模型训练重依赖
 └── requirements-spark.txt                # 可选 Spark 依赖
 ```
 
 ## 使用真实数据
 
-先设置 Tushare Token：
+需要训练模型时先安装额外依赖，然后设置 Tushare Token：
 
 ```powershell
+pip install -r requirements-model.txt
 $env:TUSHARE_TOKEN = "你的 Token"
 python fetch_stock_data.py
 python fetch_sentiment.py --mode real

@@ -1,0 +1,2 @@
+initial_capital,n_stocks_per_day,total_return,annualized_return,annualized_volatility,sharpe_ratio,max_drawdown,win_rate,average_turnover,total_transaction_cost,commission_rate,stamp_duty_rate,benchmark_name,benchmark_source,benchmark_total_return,excess_return
+1000000,10,0.0551276133212816,0.0153972826806716,0.2098818710050158,0.1768620036902967,-0.2381677921288678,0.4655367231638418,0.2794350282485875,0.2712299999999999,0.0003,0.0005,沪深300,沪深300历史快照,0.1855184509679857,-0.130390837646704

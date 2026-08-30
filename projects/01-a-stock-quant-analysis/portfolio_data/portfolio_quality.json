@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-08-30T20:39:13.336726+00:00",
+  "row_count": 37800,
+  "stock_count": 50,
+  "column_count": 48,
+  "start_date": "2023-10-06",
+  "end_date": "2026-08-28",
+  "invalid_date_count": 0,
+  "duplicate_key_count": 0,
+  "invalid_ohlc_count": 0,
+  "missing_cell_count": 50,
+  "raw_missing_cell_count": 0,
+  "structural_factor_missing_count": 0,
+  "structural_label_missing_count": 50,
+  "unexpected_missing_cell_count": 0,
+  "missing_rates": {
+    "label": 0.001323
+  },
+  "missing_details": {
+    "label": {
+      "count": 50,
+      "rate": 0.001323,
+      "category": "structural_label",
+      "reason": "每只股票末期没有下一交易日标签"
+    }
+  },
+  "nonpositive_price_count": 0,
+  "negative_volume_count": 0,
+  "zero_volume_count": 0,
+  "invalid_code_count": 0,
+  "extreme_return_count": 0,
+  "quality_status": "WARN",
+  "sentiment_source_distribution": {
+    "synthetic_demo": 37800
+  }
+}
