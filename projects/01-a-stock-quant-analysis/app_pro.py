@@ -543,6 +543,8 @@ def show_system_overview():
                 """, unsafe_allow_html=True)
     _log_xgb_acc, _log_xgb_auc, _log_xgb_mse = 0.5177, 0.5346, 0.249826
     _log_lstm_acc, _log_lstm_auc, _log_lstm_mse = 0.5094, 0.5328, 0.249148
+    _training_metrics_loaded = False
+    _comparison_source = '内置历史参考值（请重新训练）'
     _training_log_path = _P('training_log.json')
     if os.path.exists(_training_log_path):
         try:
@@ -556,15 +558,18 @@ def show_system_overview():
                 _log_lstm_acc = _tlog['LSTM'].get('accuracy', _log_lstm_acc)
                 _log_lstm_auc = _tlog['LSTM'].get('auc', _log_lstm_auc)
                 _log_lstm_mse = _tlog['LSTM'].get('mse', _log_lstm_mse)
+            _training_metrics_loaded = 'XGBoost' in _tlog and 'LSTM' in _tlog
+            if _training_metrics_loaded:
+                _comparison_source = 'training_log.json（最近一次真实训练）'
         except Exception:
             pass
     with col2:
         st.markdown("<div class='section-title'>🎯 模型表现</div>", unsafe_allow_html=True)
         with st_card():
             _overview_acc = (_log_xgb_acc + _log_lstm_acc) / 2
-            _overview_wr = _overview_acc
+            _overview_auc = (_log_xgb_auc + _log_lstm_auc) / 2
             st.markdown(f"<div style='margin: 15px 0;'><div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>平均准确率</div><div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{_overview_acc:.2%}</div></div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='margin: 15px 0;'><div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>胜率</div><div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{_overview_wr:.2%}</div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='margin: 15px 0;'><div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>平均 AUC</div><div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{_overview_auc:.4f}</div></div>", unsafe_allow_html=True)
     with col3:
         st.markdown("<div class='section-title'>⚡ 快速操作</div>", unsafe_allow_html=True)
         with st_card():
@@ -574,10 +579,10 @@ def show_system_overview():
             st.markdown(f"<p style='color: {colors['secondary_text']}; font-size: 14px;'>从左侧菜单栏选择页面进行分析</p>", unsafe_allow_html=True)
 
     st.markdown("<div class='section-title'>🤖 模型对比</div>", unsafe_allow_html=True)
-    comparison_path = os.path.join('.', 'reports', 'model_comparison.csv')
+    comparison_path = _P('reports', 'model_comparison.csv')
     xgb_acc, xgb_auc, xgb_mse = _log_xgb_acc, _log_xgb_auc, _log_xgb_mse
     lstm_acc, lstm_auc, lstm_mse = _log_lstm_acc, _log_lstm_auc, _log_lstm_mse
-    if os.path.exists(comparison_path):
+    if not _training_metrics_loaded and os.path.exists(comparison_path):
         try:
             comparison_df = pd.read_csv(comparison_path)
             for _, row in comparison_df.iterrows():
@@ -595,6 +600,8 @@ def show_system_overview():
                     pass
         except Exception:
             pass
+        else:
+            _comparison_source = 'reports/model_comparison.csv'
     xgb_acc_pct = xgb_acc * 100
     lstm_acc_pct = lstm_acc * 100
     xgb_acc_class = 'best-value' if xgb_acc > lstm_acc else ''
@@ -613,18 +620,51 @@ def show_system_overview():
             </tbody>
         </table>"""
     st.markdown(table_html, unsafe_allow_html=True)
-    png_path = os.path.join('.', 'reports', 'model_comparison.png')
+    png_path = _P('reports', 'model_comparison.png')
     if os.path.exists(png_path):
         st.image(png_path)
+    accuracy_winner = 'XGBoost' if xgb_acc > lstm_acc else ('LSTM' if lstm_acc > xgb_acc else '两者')
+    auc_winner = 'XGBoost' if xgb_auc > lstm_auc else ('LSTM' if lstm_auc > xgb_auc else '两者')
+    mse_winner = 'XGBoost' if xgb_mse < lstm_mse else ('LSTM' if lstm_mse < xgb_mse else '两者')
+    if accuracy_winner == auc_winner == mse_winner and accuracy_winner != '两者':
+        comparison_conclusion = (
+            f"{accuracy_winner} 在准确率、AUC 和 MSE 三项测试指标上均略优。"
+        )
+    else:
+        comparison_conclusion = (
+            f"准确率较优：{accuracy_winner}；AUC 较优：{auc_winner}；"
+            f"MSE 较优：{mse_winner}。"
+        )
+    auc_conclusion = (
+        '两种模型的 AUC 均接近 0.5，区分度仍然较弱。'
+        if max(xgb_auc, lstm_auc) < 0.55
+        else '至少一个模型表现出一定的样本外区分度。'
+    )
+    backtest_conclusion = '尚未生成修正版回测结果。'
+    backtest_metrics_path = _P('backtest_results', 'backtest_metrics.csv')
+    if os.path.exists(backtest_metrics_path):
+        try:
+            backtest_metrics = pd.read_csv(backtest_metrics_path).iloc[0]
+            strategy_return = float(backtest_metrics.get('total_return', 0))
+            benchmark_return = float(backtest_metrics.get('benchmark_total_return', 0))
+            excess_return = float(backtest_metrics.get('excess_return', strategy_return - benchmark_return))
+            backtest_conclusion = (
+                f"含成本 Walk-Forward 回测收益 {strategy_return:.2%}，"
+                f"同期基准 {benchmark_return:.2%}，超额 {excess_return:.2%}；"
+                "当前模型不具备实盘优势。"
+            )
+        except (OSError, ValueError, TypeError, IndexError):
+            pass
     st.markdown(f"""
         <div style='margin-top: 20px;'>
-            <p style='color: {colors['secondary_text']}; font-size: 13px; margin: 0;'>LSTM 准确率略高于 XGBoost，但 AUC 接近随机，说明模型区分度有待提升。</p>
-            <p style='color: {colors['secondary_text']}; font-size: 12px; margin-top: 5px;'>数据来源: <code>./reports/model_comparison.csv</code></p>
+            <p style='color: {colors['secondary_text']}; font-size: 13px; margin: 0;'>{comparison_conclusion} {auc_conclusion}</p>
+            <p style='color: {colors['secondary_text']}; font-size: 12px; margin-top: 5px;'>数据来源: <code>{_comparison_source}</code></p>
         </div>""", unsafe_allow_html=True)
-    st.markdown("""
-        - **预测表现**：当前模型的方向预测准确率约 52%（LSTM）和 51%（XGBoost），略高于随机。
-        - **原因分析**：A 股日频收益率噪声大，特征工程有待优化，情绪因子覆盖率有限。
-        - **模型价值**：用于排序选股（预测概率高的股票组合在回测中获得了接近基准的收益），而非绝对涨跌判断。
+    st.markdown(f"""
+        - **预测表现**：XGBoost 准确率 {xgb_acc_pct:.2f}%、AUC {xgb_auc:.4f}；LSTM 准确率 {lstm_acc_pct:.2f}%、AUC {lstm_auc:.4f}。
+        - **原因分析**：A 股日频收益率噪声大；当前未验证情绪数据已从训练特征中排除。
+        - **回测结论**：{backtest_conclusion}
+        - **模型定位**：当前仅作为研究基线和排序信号实验，不用于宣称绝对涨跌判断能力。
         - **未来改进方向**：引入更高频数据、增加基本面因子、使用 Transformer 模型。
         """)
 
