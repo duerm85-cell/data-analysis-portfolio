@@ -1002,7 +1002,7 @@ def _predict_xgb(df_all, xgb_model_path, selected_code=None):
     import xgboost as xgb
     from sklearn.metrics import accuracy_score, roc_auc_score, mean_squared_error
     if not os.path.exists(xgb_model_path):
-        return {'error': 'XGBoost 模型文件不存在，请点击「一键修复模型」重新训练'}
+        return {'error': 'XGBoost 模型文件不存在，请离线运行 python model_training.py'}
     try:
         model = xgb.XGBClassifier()
         model.load_model(xgb_model_path)
@@ -1042,7 +1042,7 @@ def _predict_xgb(df_all, xgb_model_path, selected_code=None):
     except Exception as e:
         err_str = str(e)
         if 'mismatch' in err_str.lower() or 'shape' in err_str.lower() or 'size' in err_str.lower():
-            return {'error': '模型结构与当前代码不匹配，请点击「一键修复模型」删除旧模型并重新训练'}
+            return {'error': '模型结构与当前代码不匹配，请离线运行 python model_training.py'}
         return {'error': f'XGBoost 预测失败: {e}'}
 
 
@@ -1050,7 +1050,7 @@ def _predict_lstm(df_all, lstm_model_path, selected_code=None):
     from sklearn.preprocessing import StandardScaler
     from sklearn.metrics import accuracy_score, roc_auc_score, mean_squared_error
     if not os.path.exists(lstm_model_path):
-        return {'error': 'LSTM 模型文件不存在，请点击「一键修复模型」重新训练'}
+        return {'error': 'LSTM 模型文件不存在，请离线运行 python model_training.py'}
     try:
         config_path = _P('results_optimized', 'model_config.txt')
         hidden_size, num_layers, dropout, time_steps = 64, 2, 0.2, 20
@@ -1130,7 +1130,7 @@ def _predict_lstm(df_all, lstm_model_path, selected_code=None):
     except Exception as e:
         err_str = str(e)
         if 'missing key' in err_str.lower() or 'unexpected key' in err_str.lower() or 'mismatch' in err_str.lower() or 'size' in err_str.lower():
-            return {'error': '模型结构与当前代码不匹配，请点击「一键修复模型」删除旧模型并重新训练'}
+            return {'error': '模型结构与当前代码不匹配，请在项目目录离线运行 python model_training.py'}
         return {'error': f'LSTM 预测失败: {e}'}
 
 
@@ -1168,132 +1168,37 @@ def show_prediction():
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     xgb_model_path = _P('results_optimized', 'xgb_fixed.json')
     lstm_model_path = _P('results_optimized', 'lstm_fixed.pth')
-    if selected_model == "LSTM":
-        training = st.session_state.get('lstm_training', False)
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if training:
-                st.button("⏳ 训练中...", disabled=True, key='train_lstm_btn', use_container_width=True)
-            else:
-                if st.button("🏋️ 训练 LSTM 模型", key='train_lstm_btn', use_container_width=True):
-                    st.session_state['lstm_training'] = True
-                    st.rerun()
-        with col_btn2:
-            if st.button("📊 开始预测", key='pred_btn', use_container_width=True):
-                if os.path.exists(lstm_model_path):
-                    with st.spinner("🔄 预测中，请稍候..."):
-                        result = _predict_lstm(df_factors, lstm_model_path, selected_code=selected_code)
-                        st.session_state['_pred_result'] = result
-                else:
-                    st.markdown(f"<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 股票 {selected_code} 的 LSTM 模型未训练，请先训练</div>", unsafe_allow_html=True)
-        if training:
-            with st.spinner("训练中，请稍候..."):
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        [sys.executable, _P('model_training.py')],
-                        capture_output=True, text=True, cwd=BASE_DIR, timeout=300,
-                        encoding='utf-8', errors='replace'
+    selected_model_path = lstm_model_path if selected_model == 'LSTM' else xgb_model_path
+    if st.button("📊 开始预测", key='pred_btn', width='stretch'):
+        if os.path.exists(selected_model_path):
+            with st.spinner("🔄 预测中，请稍候..."):
+                if selected_model == 'LSTM':
+                    result = _predict_lstm(
+                        df_factors, lstm_model_path, selected_code=selected_code
                     )
-                    st.session_state['lstm_training'] = False
-                    if result.returncode == 0:
-                        st.session_state['lstm_train_status'] = 'success'
-                    else:
-                        err_msg = result.stderr[:300] if result.stderr else '未知错误'
-                        if 'Unicode' in err_msg or 'codec' in err_msg:
-                            st.session_state['lstm_train_status'] = 'fail:编码错误，请检查数据文件编码'
-                        elif 'FileNotFound' in err_msg or 'No such file' in err_msg:
-                            st.session_state['lstm_train_status'] = 'fail:数据文件未找到，请先生成因子数据'
-                        elif 'Empty' in err_msg or 'No data' in err_msg:
-                            st.session_state['lstm_train_status'] = 'fail:数据不足，请检查数据量'
-                        else:
-                            st.session_state['lstm_train_status'] = f'fail:{err_msg}'
-                    st.rerun()
-                except subprocess.TimeoutExpired:
-                    st.session_state['lstm_training'] = False
-                    st.session_state['lstm_train_status'] = 'fail:训练超时（超过5分钟），请检查数据量'
-                    st.rerun()
-                except FileNotFoundError:
-                    st.session_state['lstm_training'] = False
-                    st.session_state['lstm_train_status'] = 'fail:训练脚本文件未找到'
-                    st.rerun()
-                except Exception as e:
-                    st.session_state['lstm_training'] = False
-                    st.session_state['lstm_train_status'] = f'fail:{str(e)}'
-                    st.rerun()
-        train_status = st.session_state.pop('lstm_train_status', None)
-        if train_status == 'success':
-            st.session_state['_toast_msg'] = ('success', "✅ 训练完成！LSTM 模型已更新")
-            st.rerun()
-        elif train_status and train_status.startswith('fail:'):
-            st.session_state['_toast_msg'] = ('error', f"训练失败：{train_status[5:]}")
-            st.rerun()
-        _toast = st.session_state.pop('_toast_msg', None)
-        if _toast:
-            _toast_type, _toast_text = _toast
-            if _toast_type == 'success':
-                st.success(_toast_text)
-            elif _toast_type == 'error':
-                st.error(_toast_text)
-            elif _toast_type == 'info':
-                st.info(_toast_text)
-            elif _toast_type == 'warning':
-                st.warning(_toast_text)
-        if os.path.exists(lstm_model_path):
-            st.markdown(f"<div style='padding:8px 12px;border-radius:8px;background:rgba(46,204,113,0.1);color:#2ecc71;font-size:14px;'>✅ LSTM 模型已就绪（当前股票: {selected_code}）</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 股票 {selected_code} 的 LSTM 模型未训练，请先训练</div>", unsafe_allow_html=True)
-    else:
-        if st.button("📊 开始预测", key='pred_btn', use_container_width=True):
-            if selected_model == 'LSTM':
-                result = _predict_lstm(df_factors, lstm_model_path, selected_code=selected_code)
-            else:
-                result = _predict_xgb(df_factors, xgb_model_path, selected_code=selected_code)
-            st.session_state['_pred_result'] = result
-            st.rerun()
-        if os.path.exists(xgb_model_path):
-            st.markdown(f"<div style='padding:8px 12px;border-radius:8px;background:rgba(46,204,113,0.1);color:#2ecc71;font-size:14px;'>✅ XGBoost 模型已就绪（当前股票: {selected_code}）</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 股票 {selected_code} 的 XGBoost 模型文件未找到，请先运行训练脚本</div>", unsafe_allow_html=True)
-    with st.expander("🔧 模型修复工具", expanded=False):
-        st.markdown("如果预测报错（模型结构不匹配），点击下方按钮删除旧模型并重新训练。")
-        col_fix1, col_fix2, col_fix3 = st.columns(3)
-        with col_fix1:
-            if st.button("🗑️ 删除旧模型文件", key='fix_delete_btn', use_container_width=True):
-                deleted = []
-                for p in ['results_optimized/lstm_model.pth', 'results_optimized/lstm_fixed.pth',
-                          'results_optimized/xgb_fixed.json', 'results_optimized/xgb_model.json']:
-                    full_p = _P(p)
-                    if os.path.exists(full_p):
-                        os.remove(full_p)
-                        deleted.append(p)
-                st.session_state.pop('_pred_result', None)
-                if deleted:
-                    st.session_state['_toast_msg'] = ('success', f"已删除: {', '.join(deleted)}")
-                    st.rerun()
                 else:
-                    st.session_state['_toast_msg'] = ('info', "没有找到需要删除的模型文件")
-                    st.rerun()
-        with col_fix2:
-            if st.button("🔄 一键修复模型（删除+重训练）", key='fix_retrain_btn', use_container_width=True):
-                for p in ['results_optimized/lstm_model.pth', 'results_optimized/lstm_fixed.pth',
-                          'results_optimized/xgb_fixed.json', 'results_optimized/xgb_model.json']:
-                    full_p = _P(p)
-                    if os.path.exists(full_p):
-                        os.remove(full_p)
-                st.session_state.pop('_pred_result', None)
-                st.session_state['lstm_training'] = True
-                st.rerun()
-        with col_fix3:
-            if st.button("⭐ 恢复经典配置（25维特征+重训练）", key='fix_classic_btn', use_container_width=True):
-                for p in ['results_optimized/lstm_model.pth', 'results_optimized/lstm_fixed.pth',
-                          'results_optimized/xgb_fixed.json', 'results_optimized/xgb_model.json']:
-                    full_p = _P(p)
-                    if os.path.exists(full_p):
-                        os.remove(full_p)
-                st.session_state.pop('_pred_result', None)
-                st.session_state['lstm_training'] = True
-                st.rerun()
+                    result = _predict_xgb(
+                        df_factors, xgb_model_path, selected_code=selected_code
+                    )
+                st.session_state['_pred_result'] = result
+            st.rerun()
+        else:
+            st.error(
+                f"{selected_model} 模型文件不存在。请在项目目录离线运行 "
+                "`python model_training.py` 后再预测。"
+            )
+    if os.path.exists(selected_model_path):
+        recommendation = ' · 当前推荐' if selected_model == 'XGBoost' else ' · 对照模型'
+        st.success(f"{selected_model} 模型已就绪{recommendation}（当前股票：{selected_code}）")
+    else:
+        st.warning(f"{selected_model} 模型尚未生成，请先执行离线训练流水线。")
+    with st.expander("ℹ️ 模型与训练说明", expanded=False):
+        st.markdown(
+            "预测页面只加载已训练模型进行推理，不会按股票重复训练。当前样本外评估中，"
+            "XGBoost 的准确率、AUC 和 MSE 均略优于 LSTM，因此作为默认推荐模型；"
+            "LSTM 保留为时序模型对照实验。需要更新模型时，请在项目目录运行：\n\n"
+            "```powershell\npython model_training.py\npython backtest.py\n```"
+        )
     with st.expander("📊 训练日志", expanded=False):
         log_path = _P('training_log.json')
         if os.path.exists(log_path):
