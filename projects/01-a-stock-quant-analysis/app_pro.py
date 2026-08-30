@@ -134,7 +134,7 @@ def db_get_user(username):
 
 
 st.set_page_config(
-    page_title='股票量化分析系统',
+    page_title='A股量化数据工程平台',
     page_icon='📈',
     layout='wide',
     initial_sidebar_state='expanded'
@@ -335,7 +335,7 @@ def show_login_page():
                 <span style='font-size: 80px;'>📈</span>
             </div>
             <h1 style='font-size: 48px; font-weight: 900; margin-top: 20px;'>
-                <span style='background: linear-gradient(90deg, #6C63FF, #FF6B9D, #40FF80, #6C63FF); background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: gradient-shift 4s ease infinite;'>股票量化分析系统</span>
+                <span style='background: linear-gradient(90deg, #6C63FF, #FF6B9D, #40FF80, #6C63FF); background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: gradient-shift 4s ease infinite;'>A股量化数据工程平台</span>
             </h1>
             <p style='font-size: 18px; margin-top: 15px; opacity: 0.8;'>请登录以访问系统功能</p>
         </div>
@@ -521,7 +521,7 @@ def classify_board(code):
 
 def show_system_overview():
     theme = st.session_state.get('theme', 'dark')
-    st.markdown(f"<div class='main-title' style='text-align: center;'>股票量化分析系统</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='main-title' style='text-align: center;'>A股量化数据工程平台</div>", unsafe_allow_html=True)
     df_factors, df_sentiment, df_results = load_data()
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
     if df_factors is None:
@@ -1556,7 +1556,7 @@ def show_dashboard():
                 st.plotly_chart(fig_vol_hist, use_container_width=True, config={'displayModeBar': False})
     st.markdown(f"""
         <div style='text-align: center; padding: 20px; color: {colors['secondary_text']}; font-size: 13px;'>
-            数据来源: {source_label} | 数据水位: {end_date} | © 2026 股票量化分析系统
+            数据来源: {source_label} | 数据水位: {end_date} | A股量化数据工程平台 · 研究演示
         </div>
     """, unsafe_allow_html=True)
 
@@ -1914,7 +1914,7 @@ def main():
                         f"<span style='font-size:12px;color:{color};'>{arrow}{abs(chg):.2f}%</span></div>",
                         unsafe_allow_html=True)
     st.sidebar.markdown("---")
-    st.sidebar.markdown("© 2026 股票量化分析系统")
+    st.sidebar.markdown("A股量化数据工程平台 · 研究与求职展示")
 
     if page == "数据平台":
         show_data_platform()
