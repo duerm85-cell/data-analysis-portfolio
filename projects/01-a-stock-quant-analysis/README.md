@@ -85,6 +85,8 @@ Streamlit 首页改造成紧凑的专业数据平台，集中展示数据层状�
 ├── model_training.py                     # XGBoost / BiLSTM 时间序列训练
 ├── backtest.py                           # T+1、成本与真实基准回测
 ├── scripts/prepare_demo.py               # 一键可复现 Demo
+├── scripts/rebuild_serving_database.py   # 校验、备份并原子重建 SQLite
+├── scripts/smoke_test_app.py             # 逐页 Streamlit 冒烟测试
 ├── sql/analytics_queries.sql             # 分析 SQL
 ├── tests/                                # 单元与端到端测试
 ├── requirements.txt                      # 核心依赖
@@ -128,9 +130,12 @@ python spark_pipeline.py
 ```bash
 python -m unittest discover -s tests -v
 python -m compileall -q -x "archive" .
+python scripts/smoke_test_app.py
 ```
 
 CI 会在 Python 3.10 和 3.11 上执行相同检查。演示数据、数据库、模型、日志和回测产物均被 `.gitignore` 排除。
+
+如果历史 SQLite 缺少行情字段，可运行 `python scripts/rebuild_serving_database.py`。脚本会先备份旧库，校验新库的字段与行数，再原子替换服务层；页面也会在 SQLite 不完整时自动回退到 Processed Parquet。
 
 ## 关于实验结果
 

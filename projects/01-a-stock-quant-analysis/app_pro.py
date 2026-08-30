@@ -393,7 +393,37 @@ def _count_raw_records():
     return total
 
 
-@st.cache_data
+REQUIRED_MARKET_COLUMNS = {
+    'code', 'date', 'open', 'high', 'low', 'close', 'volume', 'amount'
+}
+ANALYTIC_FACTOR_COLUMNS = [
+    'ret_5d', 'momentum_20d', 'reversal_5d', 'ma5', 'ma10', 'ma20',
+    'ma5_ma10_diff', 'ma5_ma20_diff', 'macd', 'macd_signal', 'rsi',
+    'volatility_20d', 'volatility_60d', 'bb_mid', 'bb_position',
+    'high_low_ratio', 'volume_ma5', 'volume_ratio', 'amount_ma20',
+    'amount_ratio', 'close_open_ratio', 'sentiment', 'sentiment_ma5',
+    'sentiment_ma10',
+]
+
+
+def _prepare_factor_frame(frame, source_label):
+    """统一服务层数据类型，并保留可展示的数据来源。"""
+    frame = frame.copy()
+    missing = REQUIRED_MARKET_COLUMNS - set(frame.columns)
+    if missing:
+        raise ValueError(f"数据源缺少行情字段: {sorted(missing)}")
+    frame['code'] = (
+        frame['code'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
+    )
+    frame['date'] = pd.to_datetime(frame['date'], errors='coerce')
+    frame = frame.dropna(subset=['code', 'date', 'close'])
+    if 'sentiment_source' not in frame.columns:
+        frame['sentiment_source'] = 'legacy_unknown'
+    frame.attrs['source_label'] = source_label
+    return frame
+
+
+@st.cache_data(ttl=60)
 def load_data():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(base_dir, 'data', 'processed')
@@ -402,24 +432,40 @@ def load_data():
     df_results = None
     factors_path = os.path.join(data_path, 'all_factors.parquet')
     database_path = os.path.join(base_dir, 'data', 'stock_data.db')
+    sqlite_skip_reason = None
     if os.path.exists(database_path):
         conn = sqlite3.connect(database_path)
         try:
-            factor_count = conn.execute('SELECT COUNT(*) FROM factors').fetchone()[0]
-            if factor_count:
-                df_factors = pd.read_sql_query('SELECT * FROM factors', conn)
-                if 'date' in df_factors.columns:
-                    df_factors['date'] = pd.to_datetime(df_factors['date'], errors='coerce')
-        except sqlite3.Error:
+            factor_columns = {
+                row[1] for row in conn.execute('PRAGMA table_info(factors)').fetchall()
+            }
+            missing_columns = REQUIRED_MARKET_COLUMNS - factor_columns
+            if missing_columns:
+                sqlite_skip_reason = f"SQLite 缺少字段: {sorted(missing_columns)}"
+            else:
+                factor_count = conn.execute('SELECT COUNT(*) FROM factors').fetchone()[0]
+                if factor_count:
+                    df_factors = _prepare_factor_frame(
+                        pd.read_sql_query('SELECT * FROM factors', conn),
+                        'SQLite 服务层',
+                    )
+        except (sqlite3.Error, ValueError) as exc:
+            sqlite_skip_reason = str(exc)
             df_factors = None
         finally:
             conn.close()
     if df_factors is None and os.path.exists(factors_path):
-        df_factors = pd.read_parquet(factors_path)
+        df_factors = _prepare_factor_frame(
+            pd.read_parquet(factors_path), 'Processed Parquet 快照'
+        )
+        if sqlite_skip_reason:
+            df_factors.attrs['service_warning'] = sqlite_skip_reason
     if df_factors is None:
         factors_csv_path = os.path.join(data_path, 'all_factors.csv')
         if os.path.exists(factors_csv_path):
-            df_factors = pd.read_csv(factors_csv_path, parse_dates=['date'])
+            df_factors = _prepare_factor_frame(
+                pd.read_csv(factors_csv_path), 'Processed CSV 快照'
+            )
     sentiment_path = os.path.join(data_path, 'sentiment_data.parquet')
     if os.path.exists(sentiment_path):
         df_sentiment = pd.read_parquet(sentiment_path)
@@ -661,8 +707,7 @@ def show_factor_analysis():
                 st.plotly_chart(fig_macd, use_container_width=True, config={'displayModeBar': False})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     with st_card():
-        numeric_cols = df_stock.select_dtypes(include=[np.number]).columns
-        factor_cols = [c for c in numeric_cols if c not in ['code', 'date', 'close', 'open', 'high', 'low', 'volume']]
+        factor_cols = [c for c in ANALYTIC_FACTOR_COLUMNS if c in df_stock.columns]
         if len(factor_cols) >= 2:
             selected_factors = factor_cols[:10]
             df_corr = df_stock[selected_factors].corr()
@@ -672,8 +717,10 @@ def show_factor_analysis():
         else:
             st.info("⚠️ 因子数据不足，无法绘制热力图")
     st.markdown("<div class='section-title'>📐 因子IC实时分析</div>", unsafe_allow_html=True)
-    exclude_cols = ('code', 'date', 'close', 'open', 'high', 'low', 'volume', 'amount', 'label', 'ret', 'ret_5d', 'ret_10d', 'close_open_ratio', 'high_low_ratio')
-    all_factor_names = [c for c in df_factors.columns if c not in exclude_cols and df_factors[c].dtype in [np.float64, np.float32, np.int64, np.int32, float, int]]
+    all_factor_names = [
+        column for column in ANALYTIC_FACTOR_COLUMNS
+        if column in df_factors.columns and pd.api.types.is_numeric_dtype(df_factors[column])
+    ]
     if all_factor_names:
         selected_ic_factors = st.multiselect("选择因子（1~5个）", all_factor_names, max_selections=5, key='ic_factor_select')
         if selected_ic_factors:
@@ -1036,6 +1083,11 @@ def show_prediction():
     if df_factors is None:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先处理数据</div>", unsafe_allow_html=True)
         return
+    if not os.path.exists(_P('training_log.json')):
+        st.warning(
+            "现有模型文件缺少与当前数据快照对应的训练清单，属于历史产物。"
+            "页面行情可以浏览，但模型指标与预测结果需重新训练后才可作为当前版本结论。"
+        )
     stock_codes = sorted(df_factors['code'].unique())
     watchlist = st.session_state.get('watchlist', [])
     priority_codes = [c for c in watchlist if c in stock_codes]
@@ -1269,11 +1321,16 @@ def show_dashboard():
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
     st.markdown("<div class='dashboard-title'>🚀 股票量化数据大屏</div>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: {colors['secondary_text']}; font-size: 14px; margin-top: -20px;'>数据来源: Tushare | 实时展示爬取的股票行情数据</p>", unsafe_allow_html=True)
     df_factors, df_sentiment, _ = load_data()
     if df_factors is None:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先加载数据</div>", unsafe_allow_html=True)
         return
+    source_label = df_factors.attrs.get('source_label', '本地数据快照')
+    st.markdown(
+        f"<p style='text-align:center;color:{colors['secondary_text']};font-size:14px;margin-top:-20px;'>"
+        f"数据来源：{source_label}｜批处理快照，非实时行情</p>",
+        unsafe_allow_html=True,
+    )
     df_factors['date'] = pd.to_datetime(df_factors['date'])
     latest_date = df_factors['date'].max()
     df_latest = df_factors[df_factors['date'] == latest_date].copy()
@@ -1535,7 +1592,7 @@ def show_dashboard():
                 st.plotly_chart(fig_vol_hist, use_container_width=True, config={'displayModeBar': False})
     st.markdown(f"""
         <div style='text-align: center; padding: 20px; color: {colors['secondary_text']}; font-size: 13px;'>
-            数据来源: Tushare | 更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M')} | © 2026 股票量化分析系统
+            数据来源: {source_label} | 数据水位: {end_date} | © 2026 股票量化分析系统
         </div>
     """, unsafe_allow_html=True)
 
@@ -1563,6 +1620,16 @@ def show_backtest():
         st.markdown("<div style='padding:12px 16px;border-radius:8px;background:rgba(241,196,15,0.12);color:#f39c12;font-size:15px;'>"
                     "⚠️ 未找到真实回测结果文件（backtest_results/backtest_metrics.csv）。<br>"
                     "请先在项目目录运行 <code>python backtest.py</code> 生成回测结果，完成后刷新本页。</div>", unsafe_allow_html=True)
+        return
+    corrected_fields = {
+        'average_turnover', 'commission_rate', 'stamp_duty_rate',
+        'benchmark_name', 'benchmark_source',
+    }
+    if corrected_fields - set(df_metrics.columns):
+        st.warning(
+            "检测到旧版回测产物：未记录交易成本、换手率或基准来源，"
+            "因此不展示为可信结果。请重新运行 `python backtest.py`。"
+        )
         return
     m = df_metrics.iloc[0]
     df_bt = df_bt.sort_values('date').reset_index(drop=True)
@@ -1718,6 +1785,12 @@ def show_data_platform():
     latest_date = pd.to_datetime(report['end_date'])
     freshness_days = max((pd.Timestamp.now().normalize() - latest_date).days, 0)
     missing_cell_count = int(df_factors.isna().sum().sum())
+    source_label = df_factors.attrs.get('source_label', '本地数据快照')
+    if freshness_days > 7:
+        st.warning(
+            f"当前数据水位为 {report['end_date']}，距今天 {freshness_days} 天；"
+            "页面展示的是历史快照，不是实时行情。"
+        )
 
     columns = st.columns(5)
     metric_values = [
@@ -1793,10 +1866,15 @@ def show_data_platform():
     with right:
         source_distribution = report.get('sentiment_source_distribution', {})
         st.markdown("#### 数据口径")
+        st.write(f"当前读取：{source_label}")
         st.write(f"覆盖区间：{report['start_date']} → {report['end_date']}")
         st.write(f"字段数量：{report['column_count']}")
         st.write(f"情绪来源：{source_distribution or {'not_available': report['row_count']}}")
         st.write("存储策略：CSV/Parquet 加工层 + SQLite 参数化服务层")
+        if 'legacy_unknown' in source_distribution:
+            st.caption("情绪字段来自历史产物，来源尚未核验，不作为真实新闻情绪结论。")
+
+
 def main():
     require_login = os.environ.get('QUANT_REQUIRE_LOGIN', '0') == '1'
     if 'logged_in' not in st.session_state:
