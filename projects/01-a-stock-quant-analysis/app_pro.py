@@ -41,7 +41,7 @@ def _get_db_conn():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            theme TEXT DEFAULT 'dark',
+            theme TEXT DEFAULT 'light',
             top_n INTEGER DEFAULT 20,
             watchlist TEXT DEFAULT '[]'
         )
@@ -299,32 +299,21 @@ PRO_LIGHT_CSS = """<style>
 </style>"""
 
 
-def apply_theme(theme):
-    if theme == '浅色主题':
-        st.markdown(LIGHT_CSS, unsafe_allow_html=True)
-        st.markdown(PRO_LIGHT_CSS, unsafe_allow_html=True)
-    else:
-        st.markdown(DARK_CSS, unsafe_allow_html=True)
-        st.markdown(PRO_DARK_CSS, unsafe_allow_html=True)
+def apply_theme(_theme=None):
+    """应用唯一的浅色专业主题。"""
+    st.markdown(LIGHT_CSS, unsafe_allow_html=True)
+    st.markdown(PRO_LIGHT_CSS, unsafe_allow_html=True)
 
 
-def get_theme_colors(theme):
-    if theme == '浅色主题':
-        return {
-            'plot_bg': '#FFFFFF', 'paper_bg': '#FFFFFF',
-            'font_color': '#243448', 'grid_color': '#E3E9F0',
-            'legend_bg': 'rgba(255,255,255,0.95)', 'legend_border': '#E0E0E0',
-            'accent': '#126E82', 'positive': '#D94B4B', 'negative': '#1F9D72',
-            'secondary_text': '#6D7E91', 'muted_text': '#1F9D72', 'success': '#D6912A',
-        }
-    else:
-        return {
-            'plot_bg': '#0D1A2B', 'paper_bg': '#0D1A2B',
-            'font_color': '#DCE6F2', 'grid_color': '#22344A',
-            'legend_bg': 'rgba(13,26,43,0.95)', 'legend_border': '#2B4058',
-            'accent': '#27C2D1', 'positive': '#F05A67', 'negative': '#33C58E',
-            'secondary_text': '#8FA1B7', 'muted_text': '#33C58E', 'success': '#E8A84B',
-        }
+def get_theme_colors(_theme=None):
+    """返回统一的浅色图表色板。"""
+    return {
+        'plot_bg': '#FFFFFF', 'paper_bg': '#FFFFFF',
+        'font_color': '#243448', 'grid_color': '#E3E9F0',
+        'legend_bg': 'rgba(255,255,255,0.95)', 'legend_border': '#E0E0E0',
+        'accent': '#126E82', 'positive': '#D94B4B', 'negative': '#1F9D72',
+        'secondary_text': '#6D7E91', 'muted_text': '#1F9D72', 'success': '#D6912A',
+    }
 
 
 def show_login_page():
@@ -362,7 +351,7 @@ def show_login_page():
                     if user:
                         st.session_state.logged_in = True
                         st.session_state.username = username
-                        st.session_state.theme = user.get('theme', 'dark')
+                        st.session_state.theme = 'light'
                         st.session_state.watchlist = json.loads(user.get('watchlist', '[]'))
                         st.session_state.top_n = user.get('top_n', 20)
                         st.rerun()
@@ -596,7 +585,7 @@ def show_data_insight():
     with st_card():
         daily_avg_close = df.groupby('date')['close'].mean().reset_index().sort_values('date')
         fig_close = go.Figure()
-        fig_close.add_trace(go.Scatter(x=daily_avg_close['date'], y=daily_avg_close['close'], name='全市场平均收盘价', line=dict(color=colors['accent'], width=2.5), mode='lines', fill='tozeroy', fillcolor='rgba(108, 99, 255, 0.08)' if theme == '浅色主题' else 'rgba(46, 134, 171, 0.08)'))
+        fig_close.add_trace(go.Scatter(x=daily_avg_close['date'], y=daily_avg_close['close'], name='全市场平均收盘价', line=dict(color=colors['accent'], width=2.5), mode='lines', fill='tozeroy', fillcolor='rgba(18, 110, 130, 0.08)'))
         fig_close.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='💰 全市场平均收盘价走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='平均收盘价 (元)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
         st.plotly_chart(fig_close, use_container_width=True, config={'displayModeBar': False})
     with st_card():
@@ -608,7 +597,7 @@ def show_data_insight():
         cutoff_period = pd.Period(three_years_ago, freq='M')
         monthly_volume_recent = monthly_volume[monthly_volume['year_month'] >= cutoff_period]
         fig_vol = go.Figure()
-        fig_vol.add_trace(go.Bar(x=monthly_volume_recent['year_month_str'], y=monthly_volume_recent['volume'], name='月度总成交量', marker=dict(color=monthly_volume_recent['volume'], colorscale='Viridis' if theme != '浅色主题' else 'Blues', opacity=0.85, line=dict(color='rgba(0,0,0,0)', width=0.5))))
+        fig_vol.add_trace(go.Bar(x=monthly_volume_recent['year_month_str'], y=monthly_volume_recent['volume'], name='月度总成交量', marker=dict(color=monthly_volume_recent['volume'], colorscale='Blues', opacity=0.85, line=dict(color='rgba(0,0,0,0)', width=0.5))))
         fig_vol.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 每月总成交量（近3年）', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=10, color=colors['font_color']), tickangle=-45), yaxis=dict(title=dict(text='总成交量', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
         st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
     if df_sentiment is not None and 'sentiment' in df_sentiment.columns:
@@ -1814,8 +1803,7 @@ def main():
         st.session_state.logged_in = False
     if 'username' not in st.session_state:
         st.session_state.username = ''
-    if 'theme' not in st.session_state:
-        st.session_state.theme = 'dark'
+    st.session_state.theme = 'light'
     if 'watchlist' not in st.session_state:
         st.session_state.watchlist = []
     if 'top_n' not in st.session_state:
@@ -1827,8 +1815,7 @@ def main():
     if not require_login and not st.session_state.username:
         st.session_state.username = 'demo'
 
-    theme = st.session_state.get('theme', 'dark')
-    apply_theme('浅色主题' if theme == 'light' else '深色主题')
+    apply_theme()
 
     st.sidebar.title("Quant Data Platform")
     st.sidebar.caption("量化数据开发与研究工作台")
@@ -1838,18 +1825,6 @@ def main():
         st.session_state.username = ''
         st.rerun()
     st.sidebar.markdown("---")
-    theme_index = 0 if theme == 'dark' else 1
-    theme_choice = st.sidebar.selectbox("🎨 主题切换", ["深色主题", "浅色主题"], index=theme_index, key='theme_select')
-    if theme_choice == '浅色主题' and theme != 'light':
-        st.session_state.theme = 'light'
-        if st.session_state.username:
-            db_update_user(st.session_state.username, theme='light')
-        st.rerun()
-    elif theme_choice == '深色主题' and theme != 'dark':
-        st.session_state.theme = 'dark'
-        if st.session_state.username:
-            db_update_user(st.session_state.username, theme='dark')
-        st.rerun()
     st.sidebar.markdown("### 📱 页面导航")
     pages = [('数据平台', 'platform'), ('市场总览', 'dashboard'), ('系统概览', 'overview'), ('数据洞察', 'data_insight'), ('因子研究', 'factor'), ('情绪分析', 'sentiment'), ('模型预测', 'prediction'), ('策略回测', 'backtest')]
     page_labels = [p[0] for p in pages]
