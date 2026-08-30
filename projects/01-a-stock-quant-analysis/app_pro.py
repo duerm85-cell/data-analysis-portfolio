@@ -1556,7 +1556,7 @@ def show_dashboard():
                 st.plotly_chart(fig_vol_hist, use_container_width=True, config={'displayModeBar': False})
     st.markdown(f"""
         <div style='text-align: center; padding: 20px; color: {colors['secondary_text']}; font-size: 13px;'>
-            数据来源: {source_label} | 数据水位: {end_date} | A股量化数据工程平台 · 研究演示
+            数据来源: {source_label} | 数据水位: {end_date} | 仅供研究，不构成投资建议
         </div>
     """, unsafe_allow_html=True)
 
@@ -1914,7 +1914,7 @@ def main():
                         f"<span style='font-size:12px;color:{color};'>{arrow}{abs(chg):.2f}%</span></div>",
                         unsafe_allow_html=True)
     st.sidebar.markdown("---")
-    st.sidebar.markdown("A股量化数据工程平台 · 研究与求职展示")
+    st.sidebar.markdown("A股量化数据工程平台 · 仅供研究，不构成投资建议")
 
     if page == "数据平台":
         show_data_platform()
