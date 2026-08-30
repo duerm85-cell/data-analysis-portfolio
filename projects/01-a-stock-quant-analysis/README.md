@@ -42,6 +42,8 @@ python -m streamlit run app_pro.py
 projects/01-a-stock-quant-analysis/app_pro.py
 ```
 
+`requirements.txt` 只包含公开网站的运行依赖，避免在云端安装不必要的行情采集和模型训练工具。
+
 如需在有完整本地数据的环境中强制预览公开模式：
 
 ```powershell
@@ -121,8 +123,9 @@ Streamlit 首页改造成紧凑的专业数据平台，集中展示数据层状�
 ├── scripts/smoke_test_app.py             # 逐页 Streamlit 冒烟测试
 ├── sql/analytics_queries.sql             # 分析 SQL
 ├── tests/                                # 单元与端到端测试
-├── requirements.txt                      # 核心依赖
-├── requirements-model.txt                # 离线模型训练重依赖
+├── requirements.txt                      # 公开网站最小运行依赖
+├── requirements-data.txt                 # 本地行情与情绪采集依赖
+├── requirements-model.txt                # 完整研究与离线训练依赖
 └── requirements-spark.txt                # 可选 Spark 依赖
 ```
 

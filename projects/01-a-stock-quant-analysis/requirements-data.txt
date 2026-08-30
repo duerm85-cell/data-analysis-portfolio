@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# 仅本地采集真实行情和情绪数据时需要。
+tushare==1.4.29
+akshare==1.18.55
+snownlp==0.12.3

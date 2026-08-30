@@ -7,9 +7,5 @@ pandas==2.1.4
 numpy==1.26.4
 plotly==6.7.0
 scipy==1.13.1
-tushare==1.4.29
-akshare==1.18.55
-snownlp==0.12.3
-sqlalchemy==1.4.39
 pyarrow==21.0.0
 

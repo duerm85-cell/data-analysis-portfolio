@@ -1,4 +1,4 @@
--r requirements.txt
+-r requirements-data.txt
 
 # 仅离线训练、模型预测和回测研究需要；公开只读部署不安装这些重依赖。
 torch==2.8.0
