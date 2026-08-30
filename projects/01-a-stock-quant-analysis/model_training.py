@@ -23,8 +23,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 print("[OK] sklearn导入成功")
 
-import matplotlib.pyplot as plt
 import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 print("[OK] Matplotlib导入成功")
 
 import os
@@ -38,6 +39,22 @@ warnings.filterwarnings('ignore')
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 def _P(*parts):
     return os.path.join(_BASE_DIR, *parts)
+
+
+SENTIMENT_FEATURES = {'sentiment', 'sentiment_ma5', 'sentiment_ma10', 'comment_count'}
+VERIFIED_SENTIMENT_SOURCES = {'akshare_news', 'eastmoney_news', 'tushare_news', 'verified_real'}
+
+
+def _verified_model_features(df, candidates):
+    """Exclude sentiment features unless their provenance is explicitly verified."""
+    features = [feature for feature in candidates if feature in df.columns]
+    sources = set(df.get('sentiment_source', pd.Series(dtype=str)).dropna().astype(str).unique())
+    if not (sources & VERIFIED_SENTIMENT_SOURCES):
+        removed = [feature for feature in features if feature in SENTIMENT_FEATURES]
+        features = [feature for feature in features if feature not in SENTIMENT_FEATURES]
+        if removed:
+            print(f"[数据治理] 排除未验证情绪特征: {removed}; 来源={sorted(sources) or ['not_available']}")
+    return features
 
 
 # 设置中文字体
@@ -298,9 +315,10 @@ class OptimizedStockPredictor:
             exclude_cols = [
                 'date', 'code', 'ts_code', 'close', 'volume', 'amount',
                 'ret', 'label', 'pre_close', 'change', 'pct_chg',
-                'open', 'high', 'low', 'year'
+                'open', 'high', 'low', 'year', 'comment_count'
             ]
             feature_cols = [c for c in df.columns if c not in exclude_cols and df[c].dtype in ['int64', 'float64']]
+            feature_cols = _verified_model_features(df, feature_cols)
 
             print(f"\n可用特征数: {len(feature_cols)}")
 
@@ -433,6 +451,11 @@ def _save_training_log(model_name, features, acc, auc, mse, data_range, params):
         'mse': round(mse, 6),
         'data_range': data_range,
         'params': params,
+        'data_provenance': {
+            'market_data': 'Tushare historical + AKShare/Sina incremental update',
+            'sentiment_policy': 'unverified sentiment excluded from training',
+            'split_policy': 'chronological split; no random train/test shuffle',
+        },
     }
     with open(log_path, 'w', encoding='utf-8') as f:
         json.dump(log, f, ensure_ascii=False, indent=2)
@@ -449,7 +472,7 @@ def train_xgb_classifier():
     df = pd.read_parquet(data_path)
     df['date'] = pd.to_datetime(df['date'])
     print(f"总样本数: {len(df):,}")
-    available_features = [f for f in CLASSIC_FEATURES if f in df.columns]
+    available_features = _verified_model_features(df, CLASSIC_FEATURES)
     missing = set(CLASSIC_FEATURES) - set(df.columns)
     if missing:
         print(f"[警告] 缺少特征: {missing}")
@@ -538,7 +561,7 @@ def train_lstm_model():
     df = pd.read_parquet(data_path)
     df['date'] = pd.to_datetime(df['date'])
     print(f"总样本数: {len(df):,}")
-    available_features = [f for f in CLASSIC_FEATURES if f in df.columns]
+    available_features = _verified_model_features(df, CLASSIC_FEATURES)
     missing = set(CLASSIC_FEATURES) - set(df.columns)
     if missing:
         print(f"[警告] 缺少特征: {missing}")
@@ -559,9 +582,9 @@ def train_lstm_model():
     y_validation_cls = (validation_df['label'] > 0).astype(int)
     y_test_cls = (test_df['label'] > 0).astype(int)
     scaler = StandardScaler()
-    train_features = scaler.fit_transform(train_df[available_features])
-    validation_features = scaler.transform(validation_df[available_features])
-    test_features = scaler.transform(test_df[available_features])
+    train_features = scaler.fit_transform(train_df[available_features]).astype(np.float32)
+    validation_features = scaler.transform(validation_df[available_features]).astype(np.float32)
+    test_features = scaler.transform(test_df[available_features]).astype(np.float32)
     time_steps = 20
 
     def create_ts(features, labels, codes, ts=20):
@@ -583,6 +606,17 @@ def train_lstm_model():
         time_steps,
     )
     X_test, y_test_ts = create_ts(test_features, y_test_cls.values, test_df['code'].values, time_steps)
+    def cap_sequences(features, labels, limit):
+        if len(features) <= limit:
+            return features, labels
+        indices = np.linspace(0, len(features) - 1, num=limit, dtype=int)
+        return features[indices], labels[indices]
+
+    # Keep CPU training reproducible and runnable on an interview laptop while
+    # sampling evenly across the chronologically ordered, multi-stock sequences.
+    X_train, y_train_ts = cap_sequences(X_train, y_train_ts, 120_000)
+    X_validation, y_validation_ts = cap_sequences(X_validation, y_validation_ts, 40_000)
+    X_test, y_test_ts = cap_sequences(X_test, y_test_ts, 40_000)
     print(
         f"训练数据: {X_train.shape}, 验证数据: {X_validation.shape}, "
         f"测试数据: {X_test.shape}"
@@ -596,9 +630,16 @@ def train_lstm_model():
     y_validation_t = torch.tensor(y_validation_ts, dtype=torch.float32)
     X_test_t = torch.tensor(X_test, dtype=torch.float32)
     y_test_t = torch.tensor(y_test_ts, dtype=torch.float32)
+    input_size = X_train.shape[2]
+    del X_train, X_validation, X_test, train_features, validation_features, test_features
     train_dataset = TensorDataset(X_train_t, y_train_t)
     train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True, num_workers=0)
-    input_size = X_train.shape[2]
+    validation_loader = DataLoader(
+        TensorDataset(X_validation_t, y_validation_t), batch_size=1024, shuffle=False, num_workers=0
+    )
+    test_loader = DataLoader(
+        TensorDataset(X_test_t, y_test_t), batch_size=1024, shuffle=False, num_workers=0
+    )
     hidden_size = 64
     model = BiLSTMModel(input_size=input_size, hidden_size=hidden_size, num_layers=2, dropout=0.2)
     print(f"模型结构: input_size={input_size}, hidden_size={hidden_size}, bidirectional=True")
@@ -625,8 +666,11 @@ def train_lstm_model():
         train_loss /= len(train_loader.dataset)
         model.eval()
         with torch.no_grad():
-            val_outputs = model(X_validation_t)
-            val_loss = criterion(val_outputs, y_validation_t).item()
+            validation_loss_sum = 0.0
+            for batch_X, batch_y in validation_loader:
+                batch_outputs = model(batch_X)
+                validation_loss_sum += criterion(batch_outputs, batch_y).item() * batch_X.size(0)
+            val_loss = validation_loss_sum / len(validation_loader.dataset)
         print(f"Epoch {epoch + 1}/{num_epochs} - train_loss: {train_loss:.6f}, val_loss: {val_loss:.6f}")
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -640,8 +684,10 @@ def train_lstm_model():
     model.load_state_dict(torch.load(_P('results_optimized', 'lstm_fixed.pth'), weights_only=True))
     model.eval()
     with torch.no_grad():
-        logits = model(X_test_t)
-        y_pred_proba = torch.sigmoid(logits).numpy()
+        probability_batches = []
+        for batch_X, _ in test_loader:
+            probability_batches.append(torch.sigmoid(model(batch_X)).cpu().numpy())
+        y_pred_proba = np.concatenate(probability_batches)
     y_pred_cls = (y_pred_proba > 0.5).astype(int)
     acc = accuracy_score(y_test_ts, y_pred_cls)
     try:
@@ -671,7 +717,10 @@ def train_lstm_model():
                        {'input_size': input_size, 'hidden_size': hidden_size,
                         'num_layers': 2, 'dropout': 0.2, 'bidirectional': True,
                         'time_steps': time_steps, 'epochs': num_epochs,
-                        'lr': 0.003, 'batch_size': 512, 'patience': patience})
+                        'lr': 0.003, 'batch_size': 512, 'patience': patience,
+                        'max_train_sequences': 120000,
+                        'max_validation_sequences': 40000,
+                        'max_test_sequences': 40000})
 
 
 def main():

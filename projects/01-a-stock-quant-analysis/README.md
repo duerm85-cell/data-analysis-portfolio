@@ -50,7 +50,7 @@ flowchart LR
 
 ## 工程能力
 
-- 数据采集：Tushare 行情和沪深 300 基准；日期窗口动态配置，Token 仅从环境变量读取。
+- 数据采集：Tushare 主链路；无 Token 时可用 AKShare/Sina 做可校验的增量行情与沪深 300 更新，Token 仅从环境变量读取。
 - 数据质量：覆盖行数、股票数、日期范围、重复键、空值率、OHLC 合法性，并输出 JSON 报告。
 - 数据库：动态安全建列、`(code, date)` 唯一索引、事务回滚、分块增量 upsert；查询不拼接用户输入。
 - 分布式处理：提供 PySpark 清洗、窗口因子、按年份分区 Parquet 和 Spark SQL 聚合链路。
@@ -85,6 +85,7 @@ Streamlit 首页改造成紧凑的专业数据平台，集中展示数据层状�
 ├── model_training.py                     # XGBoost / BiLSTM 时间序列训练
 ├── backtest.py                           # T+1、成本与真实基准回测
 ├── scripts/prepare_demo.py               # 一键可复现 Demo
+├── scripts/update_market_data_akshare.py  # 无 Token 增量更新与跨源校验
 ├── scripts/rebuild_serving_database.py   # 校验、备份并原子重建 SQLite
 ├── scripts/smoke_test_app.py             # 逐页 Streamlit 冒烟测试
 ├── sql/analytics_queries.sql             # 分析 SQL
@@ -108,6 +109,19 @@ python backtest.py
 ```
 
 如果只想演示情绪链路，必须显式执行 `python fetch_sentiment.py --mode demo`。
+
+已有历史数据但暂时没有 Tushare Token 时，可执行：
+
+```powershell
+python scripts/update_market_data_akshare.py
+python data_preprocessing.py
+python factor_engineering_with_sentiment.py
+python scripts/rebuild_serving_database.py
+python model_training.py
+python backtest.py
+```
+
+更新脚本会对新旧数据重叠区间做价格/成交量/成交额口径校验，并把来源、失败列表、日期范围写入运行清单。没有明确来源的旧情绪数据标为 `legacy_unknown`，不会进入模型训练。
 
 | 环境变量 | 说明 |
 |---|---|
@@ -139,7 +153,9 @@ CI 会在 Python 3.10 和 3.11 上执行相同检查。演示数据、数据库�
 
 ## 关于实验结果
 
-旧毕设版本曾记录过模型和收益指标，但原回测把股票池等权收益误写为“沪深 300”，且未真实扣除交易成本，因此不再把这些数字作为当前版本结论。请运行修正后的训练和回测，以 `backtest_results/metrics.json` 为唯一结果来源；页面会同步显示基准来源与成本参数。这一处理比保留好看的旧数字更符合量化研究的可审计原则。
+旧毕设版本曾记录过模型和收益指标，但原回测把股票池等权收益误写为“沪深 300”，且未真实扣除交易成本，因此不再把这些数字作为当前版本结论。请运行修正后的训练和回测，以 `training_log.json` 与 `backtest_results/backtest_metrics.csv` 为本地结果来源；页面会同步显示基准来源与成本参数。
+
+2026-08-30 的本地真实数据验收覆盖 364 只股票、562,789 条因子记录（2020-01-07 至 2026-08-28），重复主键与非法 OHLC 均为 0。按时间切分后，XGBoost 测试准确率 51.97%、AUC 0.5204；BiLSTM 准确率 51.80%、AUC 0.5162。Walk-Forward 策略在 2023-01-03 至 2026-08-27 计入佣金、印花税和换手成本后总收益 5.51%，同期沪深 300 为 18.55%，超额 -13.04%，最大回撤 -23.82%。结论是当前技术因子只有很弱的统计信号，尚不具备实盘优势；项目价值在于可追溯的数据工程、无泄漏验证和诚实的研究结论，而不是包装收益。
 
 ## 岗位能力映射
 

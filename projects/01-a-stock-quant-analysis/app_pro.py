@@ -423,6 +423,23 @@ def _prepare_factor_frame(frame, source_label):
     return frame
 
 
+def _market_source_label(base_dir, serving_layer):
+    manifest_path = os.path.join(
+        base_dir, 'data', 'processed', 'market_update_manifest.json'
+    )
+    if not os.path.exists(manifest_path):
+        return serving_layer
+    try:
+        with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
+            manifest = json.load(manifest_file)
+        source = manifest.get('source')
+        if source:
+            return f"{serving_layer} · 历史 Tushare + {source} 增量"
+    except (OSError, ValueError, TypeError):
+        pass
+    return serving_layer
+
+
 @st.cache_data(ttl=60)
 def load_data():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -447,7 +464,7 @@ def load_data():
                 if factor_count:
                     df_factors = _prepare_factor_frame(
                         pd.read_sql_query('SELECT * FROM factors', conn),
-                        'SQLite 服务层',
+                        _market_source_label(base_dir, 'SQLite 服务层'),
                     )
         except (sqlite3.Error, ValueError) as exc:
             sqlite_skip_reason = str(exc)
@@ -456,7 +473,8 @@ def load_data():
             conn.close()
     if df_factors is None and os.path.exists(factors_path):
         df_factors = _prepare_factor_frame(
-            pd.read_parquet(factors_path), 'Processed Parquet 快照'
+            pd.read_parquet(factors_path),
+            _market_source_label(base_dir, 'Processed Parquet 快照'),
         )
         if sqlite_skip_reason:
             df_factors.attrs['service_warning'] = sqlite_skip_reason
@@ -464,7 +482,8 @@ def load_data():
         factors_csv_path = os.path.join(data_path, 'all_factors.csv')
         if os.path.exists(factors_csv_path):
             df_factors = _prepare_factor_frame(
-                pd.read_csv(factors_csv_path), 'Processed CSV 快照'
+                pd.read_csv(factors_csv_path),
+                _market_source_label(base_dir, 'Processed CSV 快照'),
             )
     sentiment_path = os.path.join(data_path, 'sentiment_data.parquet')
     if os.path.exists(sentiment_path):

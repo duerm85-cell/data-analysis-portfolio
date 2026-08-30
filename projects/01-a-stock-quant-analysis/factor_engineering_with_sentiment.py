@@ -85,17 +85,52 @@ def calculate_technical_factors(df):
     return df
 
 
-def merge_sentiment_factors(df, stock_code):
-    """合并情绪因子"""
-    print(f"\n合并 {stock_code} 的情绪因子...")
-
+def load_sentiment_data():
+    """Load and normalize the optional sentiment dataset once per pipeline run."""
     sentiment_candidates = [
         _P('data', 'processed', 'sentiment_data.parquet'),
         _P('data', 'processed', 'sentiment_data.csv'),
     ]
     sentiment_path = next((path for path in sentiment_candidates if os.path.exists(path)), None)
-
     if sentiment_path is None:
+        print("未找到情感数据文件；本次仅生成技术因子。")
+        return None
+
+    try:
+        if sentiment_path.endswith('.parquet'):
+            sentiment_df = pd.read_parquet(sentiment_path)
+        else:
+            sentiment_df = pd.read_csv(sentiment_path, dtype={'code': str})
+
+        required = {'code', 'date', 'sentiment'}
+        missing = required - set(sentiment_df.columns)
+        if missing:
+            raise ValueError(f"情感数据缺少必要字段: {sorted(missing)}")
+
+        sentiment_df['code'] = sentiment_df['code'].astype(str).str.zfill(6)
+        sentiment_df['date'] = pd.to_datetime(sentiment_df['date'], errors='coerce')
+        sentiment_df = sentiment_df.dropna(subset=['date'])
+        for column in ['sentiment_ma5', 'sentiment_ma10', 'comment_count']:
+            if column not in sentiment_df.columns:
+                sentiment_df[column] = 0
+        if 'data_source' not in sentiment_df.columns:
+            sentiment_df['data_source'] = 'legacy_unknown'
+        sentiment_df['data_source'] = sentiment_df['data_source'].fillna('legacy_unknown')
+        print(
+            f"已加载情感数据 {len(sentiment_df):,} 行；"
+            "缺失来源按 legacy_unknown 标记，不会进入模型训练。"
+        )
+        return sentiment_df
+    except Exception as exc:
+        print(f"情感数据加载失败，本次仅生成技术因子: {exc}")
+        return None
+
+
+def merge_sentiment_factors(df, stock_code, sentiment_data=None):
+    """合并情绪因子"""
+    print(f"\n合并 {stock_code} 的情绪因子...")
+
+    if sentiment_data is None:
         print("未找到情感数据文件，添加默认情感因子...")
         df['sentiment'] = 0
         df['sentiment_ma5'] = 0
@@ -105,14 +140,12 @@ def merge_sentiment_factors(df, stock_code):
         return df
 
     try:
-        if sentiment_path.endswith('.parquet'):
-            sentiment_df = pd.read_parquet(sentiment_path)
-        else:
-            sentiment_df = pd.read_csv(sentiment_path)
+        sentiment_df = sentiment_data
 
         # 筛选该股票的情感数据
         if 'code' in sentiment_df.columns:
-            sentiment_df = sentiment_df[sentiment_df['code'] == stock_code]
+            normalized_code = str(stock_code).zfill(6)
+            sentiment_df = sentiment_df[sentiment_df['code'] == normalized_code].copy()
 
         if sentiment_df.empty:
             print(f"未找到 {stock_code} 的情感数据，添加默认情感因子...")
@@ -128,8 +161,6 @@ def merge_sentiment_factors(df, stock_code):
         sentiment_df['date'] = pd.to_datetime(sentiment_df['date'])
 
         # 合并情感数据
-        if 'data_source' not in sentiment_df.columns:
-            sentiment_df['data_source'] = 'legacy_unknown'
         df = df.merge(
             sentiment_df[['date', 'sentiment', 'sentiment_ma5', 'sentiment_ma10', 'comment_count', 'data_source']],
             on='date',
@@ -178,6 +209,7 @@ def main():
     print(f"\n找到 {len(files)} 个股票数据文件")
 
     all_dfs = []
+    sentiment_data = load_sentiment_data()
 
     for i, file in enumerate(files):
         try:
@@ -206,7 +238,7 @@ def main():
             df = calculate_technical_factors(df)
 
             # 合并情绪因子
-            df = merge_sentiment_factors(df, code)
+            df = merge_sentiment_factors(df, code, sentiment_data)
 
             # 删除缺失值（除了标签列的最后几行）
             initial_rows = len(df)

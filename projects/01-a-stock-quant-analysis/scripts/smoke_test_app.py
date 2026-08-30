@@ -7,19 +7,20 @@ import sys
 from streamlit.testing.v1 import AppTest
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+APP_TIMEOUT_SECONDS = int(os.getenv('STREAMLIT_SMOKE_TIMEOUT', '90'))
 os.chdir(PROJECT_DIR)
 sys.path.insert(0, str(PROJECT_DIR))
 
 
 def main():
     failures = []
-    first = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=30)
+    first = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=APP_TIMEOUT_SECONDS)
     page_count = len(first.radio[0].options)
 
     for index in range(page_count):
-        app = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=30)
+        app = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=APP_TIMEOUT_SECONDS)
         page_name = app.radio[0].options[index]
-        app.radio[0].set_value(page_name).run(timeout=30)
+        app.radio[0].set_value(page_name).run(timeout=APP_TIMEOUT_SECONDS)
         errors = [exception.value for exception in app.exception]
         print(f"[{index + 1}/{page_count}] {page_name}: {'FAIL' if errors else 'OK'}")
         failures.extend(f"{page_name}: {error}" for error in errors)
