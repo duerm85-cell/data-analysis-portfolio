@@ -3,6 +3,7 @@
 from pathlib import Path
 import os
 import sys
+import time
 
 from streamlit.testing.v1 import AppTest
 
@@ -18,11 +19,16 @@ def main():
     page_count = len(first.radio[0].options)
 
     for index in range(page_count):
+        started_at = time.perf_counter()
         app = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=APP_TIMEOUT_SECONDS)
         page_name = app.radio[0].options[index]
         app.radio[0].set_value(page_name).run(timeout=APP_TIMEOUT_SECONDS)
         errors = [exception.value for exception in app.exception]
-        print(f"[{index + 1}/{page_count}] {page_name}: {'FAIL' if errors else 'OK'}")
+        elapsed = time.perf_counter() - started_at
+        print(
+            f"[{index + 1}/{page_count}] {page_name}: "
+            f"{'FAIL' if errors else 'OK'} ({elapsed:.2f}s)"
+        )
         failures.extend(f"{page_name}: {error}" for error in errors)
 
     if failures:

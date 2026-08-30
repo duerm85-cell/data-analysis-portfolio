@@ -59,6 +59,7 @@ def build_quality_report(frame):
         'invalid_date_count': int(data['date'].isna().sum()),
         'duplicate_key_count': duplicate_count,
         'invalid_ohlc_count': invalid_ohlc,
+        'missing_cell_count': int(data.isna().sum().sum()),
         'missing_rates': missing_rates,
         'sentiment_source_distribution': source_distribution,
     }

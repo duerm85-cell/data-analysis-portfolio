@@ -25,6 +25,7 @@ class DataQualityTest(unittest.TestCase):
         self.assertEqual(report['duplicate_key_count'], 1)
         self.assertEqual(report['invalid_date_count'], 1)
         self.assertEqual(report['invalid_ohlc_count'], 1)
+        self.assertEqual(report['missing_cell_count'], 2)
         self.assertEqual(report['sentiment_source_distribution']['synthetic_demo'], 1)
 
 

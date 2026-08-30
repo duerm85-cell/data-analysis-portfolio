@@ -440,7 +440,7 @@ def _market_source_label(base_dir, serving_layer):
     return serving_layer
 
 
-@st.cache_data(ttl=60)
+@st.cache_resource(show_spinner=False)
 def load_data():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(base_dir, 'data', 'processed')
@@ -450,7 +450,18 @@ def load_data():
     factors_path = os.path.join(data_path, 'all_factors.parquet')
     database_path = os.path.join(base_dir, 'data', 'stock_data.db')
     sqlite_skip_reason = None
-    if os.path.exists(database_path):
+    # 分析页面需要整张因子宽表：列式 Parquet 比 SQLite 全表逐行读取快得多。
+    # SQLite 继续作为参数化查询服务层，并在 Parquet 不可用时兜底。
+    if os.path.exists(factors_path):
+        try:
+            df_factors = _prepare_factor_frame(
+                pd.read_parquet(factors_path),
+                _market_source_label(base_dir, 'Processed Parquet 快照'),
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            sqlite_skip_reason = f"Parquet 读取失败: {exc}"
+            df_factors = None
+    if df_factors is None and os.path.exists(database_path):
         conn = sqlite3.connect(database_path)
         try:
             factor_columns = {
@@ -471,13 +482,6 @@ def load_data():
             df_factors = None
         finally:
             conn.close()
-    if df_factors is None and os.path.exists(factors_path):
-        df_factors = _prepare_factor_frame(
-            pd.read_parquet(factors_path),
-            _market_source_label(base_dir, 'Processed Parquet 快照'),
-        )
-        if sqlite_skip_reason:
-            df_factors.attrs['service_warning'] = sqlite_skip_reason
     if df_factors is None:
         factors_csv_path = os.path.join(data_path, 'all_factors.csv')
         if os.path.exists(factors_csv_path):
@@ -499,6 +503,67 @@ def load_data():
             latest_results = sorted(results_files)[-1]
             df_results = pd.read_csv(os.path.join(results_dir, latest_results))
     return df_factors, df_sentiment, df_results
+
+
+@st.cache_resource(show_spinner=False)
+def load_platform_quality_summary():
+    """缓存全表质量扫描结果，避免每次切页复制和遍历 56 万行宽表。"""
+    df_factors, _, _ = load_data()
+    if df_factors is None or df_factors.empty:
+        return None, 0
+    report_path = _P('reports', 'data_quality.json')
+    if os.path.exists(report_path):
+        try:
+            with open(report_path, 'r', encoding='utf-8') as report_file:
+                saved_report = json.load(report_file)
+            current_end_date = pd.to_datetime(df_factors['date']).max().strftime('%Y-%m-%d')
+            if (
+                int(saved_report.get('row_count', -1)) == len(df_factors)
+                and saved_report.get('end_date') == current_end_date
+            ):
+                missing_cell_count = saved_report.get('missing_cell_count')
+                if missing_cell_count is None:
+                    missing_cell_count = int(sum(
+                        float(rate) * len(df_factors)
+                        for rate in saved_report.get('missing_rates', {}).values()
+                    ))
+                return saved_report, int(missing_cell_count)
+        except (OSError, ValueError, TypeError):
+            pass
+    report = build_quality_report(df_factors)
+    missing_cell_count = int(report['missing_cell_count'])
+    return report, missing_cell_count
+
+
+@st.cache_resource(show_spinner=False)
+def load_dashboard_snapshot():
+    """缓存市场总览所需的小型快照，避免切页时反复扫描全表或打开数百个 CSV。"""
+    df_factors, _, _ = load_data()
+    if df_factors is None or df_factors.empty:
+        return None
+    factor_dates = pd.to_datetime(df_factors['date'])
+    latest_date = factor_dates.max()
+    latest_frame = df_factors.loc[factor_dates == latest_date].copy()
+    code_to_board = {
+        code: classify_board(code) for code in df_factors['code'].drop_duplicates()
+    }
+    if 'amount' in df_factors.columns:
+        board_amount = pd.DataFrame(
+            {
+                '板块': df_factors['code'].map(code_to_board),
+                'amount': df_factors['amount'],
+            }
+        ).groupby('板块', as_index=False)['amount'].sum()
+    else:
+        board_amount = pd.DataFrame()
+    return {
+        'latest_date': latest_date,
+        'latest_frame': latest_frame,
+        'stock_count': int(df_factors['code'].nunique()),
+        'record_count': int(len(df_factors)),
+        'start_date': factor_dates.min(),
+        'board_amount': board_amount.sort_values('amount', ascending=False),
+    }
 
 
 def st_card():
@@ -575,6 +640,7 @@ def show_system_overview():
         with st_card():
             if st.button("🔄 刷新数据"):
                 st.cache_data.clear()
+                st.cache_resource.clear()
                 st.rerun()
             st.markdown(f"<p style='color: {colors['secondary_text']}; font-size: 14px;'>从左侧菜单栏选择页面进行分析</p>", unsafe_allow_html=True)
 
@@ -677,26 +743,30 @@ def show_data_insight():
     if df_factors is None:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先加载数据</div>", unsafe_allow_html=True)
         return
-    df = df_factors.copy()
-    df['date'] = pd.to_datetime(df['date'])
+    factor_dates = pd.to_datetime(df_factors['date'])
     with st_card():
-        df['板块'] = df['code'].apply(classify_board)
-        board_counts = df.drop_duplicates(subset=['code', '板块'])['板块'].value_counts()
+        stock_universe = df_factors[['code']].drop_duplicates().copy()
+        stock_universe['板块'] = stock_universe['code'].map(classify_board)
+        board_counts = stock_universe['板块'].value_counts()
         pie_colors = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
         fig_pie = go.Figure(go.Pie(labels=board_counts.index.tolist(), values=board_counts.values, marker=dict(colors=pie_colors, line=dict(color=colors['paper_bg'], width=2)), textinfo='label+percent+value', textfont=dict(color=colors['font_color'], size=14), hole=0.4, pull=0.03))
         fig_pie.update_layout(height=400, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='🏛️ 股票市场板块分布', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=60, t=60, b=40), legend=dict(font=dict(size=13, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1))
         st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     with st_card():
-        daily_avg_close = df.groupby('date')['close'].mean().reset_index().sort_values('date')
+        daily_avg_close = (
+            pd.DataFrame({'date': factor_dates, 'close': df_factors['close']})
+            .groupby('date', as_index=False)['close'].mean()
+            .sort_values('date')
+        )
         fig_close = go.Figure()
         fig_close.add_trace(go.Scatter(x=daily_avg_close['date'], y=daily_avg_close['close'], name='全市场平均收盘价', line=dict(color=colors['accent'], width=2.5), mode='lines', fill='tozeroy', fillcolor='rgba(18, 110, 130, 0.08)'))
         fig_close.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='💰 全市场平均收盘价走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='平均收盘价 (元)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
         st.plotly_chart(fig_close, use_container_width=True, config={'displayModeBar': False})
     with st_card():
-        monthly_volume = df.copy()
-        monthly_volume['year_month'] = monthly_volume['date'].dt.to_period('M')
-        monthly_volume = monthly_volume.groupby('year_month')['volume'].sum().reset_index()
+        monthly_volume = pd.DataFrame(
+            {'year_month': factor_dates.dt.to_period('M'), 'volume': df_factors['volume']}
+        ).groupby('year_month', as_index=False)['volume'].sum()
         monthly_volume['year_month_str'] = monthly_volume['year_month'].astype(str)
         three_years_ago = pd.Timestamp.now() - pd.DateOffset(years=3)
         cutoff_period = pd.Period(three_years_ago, freq='M')
@@ -1295,14 +1365,15 @@ def show_dashboard():
         f"数据来源：{source_label}｜批处理快照，非实时行情</p>",
         unsafe_allow_html=True,
     )
-    df_factors['date'] = pd.to_datetime(df_factors['date'])
-    latest_date = df_factors['date'].max()
-    df_latest = df_factors[df_factors['date'] == latest_date].copy()
-    stock_count = df_factors['code'].nunique()
-    total_records = _count_raw_records()
-    if total_records == 0:
-        total_records = len(df_factors)
-    start_date = df_factors['date'].min().strftime('%Y-%m-%d')
+    dashboard_snapshot = load_dashboard_snapshot()
+    if dashboard_snapshot is None:
+        st.warning("市场总览快照暂不可用。")
+        return
+    latest_date = dashboard_snapshot['latest_date']
+    df_latest = dashboard_snapshot['latest_frame']
+    stock_count = dashboard_snapshot['stock_count']
+    total_records = dashboard_snapshot['record_count']
+    start_date = dashboard_snapshot['start_date'].strftime('%Y-%m-%d')
     end_date = latest_date.strftime('%Y-%m-%d')
     avg_close = df_latest['close'].mean() if len(df_latest) > 0 else 0
     avg_volume = df_latest['volume'].mean() if len(df_latest) > 0 else 0
@@ -1441,27 +1512,7 @@ def show_dashboard():
     st.markdown("<div class='section-title'>📊 板块成交额分布</div>", unsafe_allow_html=True)
     if len(df_latest) > 0:
         with st_card():
-            if '_full_sector_cache' not in st.session_state:
-                try:
-                    raw_dir = os.path.join('.', 'data', 'raw')
-                    raw_files = glob.glob(os.path.join(raw_dir, '*_daily.csv'))
-                    if raw_files:
-                        dfs = []
-                        for rf in raw_files:
-                            code = os.path.basename(rf).replace('_daily.csv', '')
-                            tmp = pd.read_csv(rf, usecols=['amount'])
-                            tmp['code'] = code
-                            dfs.append(tmp)
-                        df_full = pd.concat(dfs, ignore_index=True)
-                        df_full['板块'] = df_full['code'].apply(classify_board)
-                        board_amount_full = df_full.groupby('板块')['amount'].sum().reset_index()
-                        board_amount_full = board_amount_full.sort_values('amount', ascending=False)
-                        st.session_state['_full_sector_cache'] = board_amount_full
-                    else:
-                        st.session_state['_full_sector_cache'] = None
-                except Exception:
-                    st.session_state['_full_sector_cache'] = None
-            board_amount = st.session_state.get('_full_sector_cache')
+            board_amount = dashboard_snapshot['board_amount'].copy()
             if board_amount is not None and len(board_amount) > 0:
                 amount_col = 'amount'
                 total_amount = board_amount[amount_col].sum()
@@ -1745,10 +1796,12 @@ def show_data_platform():
         )
         return
 
-    report = build_quality_report(df_factors)
+    report, missing_cell_count = load_platform_quality_summary()
+    if report is None:
+        st.warning("数据质量摘要暂不可用。")
+        return
     latest_date = pd.to_datetime(report['end_date'])
     freshness_days = max((pd.Timestamp.now().normalize() - latest_date).days, 0)
-    missing_cell_count = int(df_factors.isna().sum().sum())
     source_label = df_factors.attrs.get('source_label', '本地数据快照')
     if freshness_days > 7:
         st.warning(
@@ -1891,10 +1944,9 @@ def main():
         saved_wl = st.session_state.get('watchlist', [])
         if saved_wl and df_factors is not None:
             st.sidebar.markdown("#### 📋 自选股行情")
-            if not pd.api.types.is_datetime64_any_dtype(df_factors['date']):
-                df_factors['date'] = pd.to_datetime(df_factors['date'])
-            latest_date = df_factors['date'].max()
-            df_latest = df_factors[df_factors['date'] == latest_date]
+            factor_dates = pd.to_datetime(df_factors['date'])
+            latest_date = factor_dates.max()
+            df_latest = df_factors[factor_dates == latest_date]
             for code in saved_wl:
                 row = df_latest[df_latest['code'] == code]
                 if len(row) > 0:
