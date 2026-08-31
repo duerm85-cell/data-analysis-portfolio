@@ -42,7 +42,7 @@ python -m streamlit run app_pro.py
 projects/01-a-stock-quant-analysis/app_pro.py
 ```
 
-`requirements.txt` 只包含公开网站的运行依赖，避免在云端安装不必要的行情采集和模型训练工具。
+`requirements.txt` 只包含公开网站的运行依赖，并使用最低版本约束，由云端根据 Python 版本选择兼容的预编译包。行情采集和模型训练工具不会在线安装。
 
 如需在有完整本地数据的环境中强制预览公开模式：
 

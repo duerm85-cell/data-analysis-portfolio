@@ -2,10 +2,12 @@
 # Python 3.10+
 
 ## 核心依赖
-streamlit==1.50.0
-pandas==2.1.4
-numpy==1.26.4
-plotly==6.7.0
-scipy==1.13.1
-pyarrow==21.0.0
+# 使用最低版本约束，让 Streamlit Cloud 为它的 Python 版本
+# 选择已发布 wheel 的兼容版本，避免在云端编译 PyArrow。
+streamlit>=1.50.0
+pandas>=2.1.4
+numpy>=1.26.4
+plotly>=6.7.0
+scipy>=1.13.1
+pyarrow>=21.0.0
 
