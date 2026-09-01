@@ -3,7 +3,6 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PySpark](https://img.shields.io/badge/PySpark-optional-E25A1C?logo=apachespark&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-serving-003B57?logo=sqlite&logoColor=white)
-![CI](https://github.com/duerm85-cell/data-analysis-portfolio/actions/workflows/quality.yml/badge.svg)
 
 这是一个从本科毕设演进而来的、可复现的量化数据开发项目。它覆盖行情采集、数据清洗、质量校验、因子加工、SQLite 服务层、机器学习、T+1 回测和 Streamlit 数据平台。原始数据、模型和结果均由流水线生成，不再提交大文件到 Git。
 
@@ -93,7 +92,7 @@ flowchart LR
 - 回测可信度：T 日信号对应 T+1 收益；支持佣金、印花税、换手率；优先读取真实沪深 300，缺失时明确显示“股票池等权基准”。
 - 来源治理：真实新闻与合成演示情绪严格区分；网络失败不会悄悄生成随机数据。
 - 基础安全：外部 SQL 输入参数绑定；演示账号使用带随机盐的 PBKDF2 摘要，并自动迁移旧摘要。
-- 可维护性：8 项单元/集成测试、Python 3.10/3.11 GitHub Actions、可移植 Windows 启动脚本。
+- 可维护性：覆盖数据质量、数据库、因子、回测、Demo 与公开数据包的单元/集成测试，Python 3.10+ 兼容，并提供可移植 Windows 启动脚本。
 
 ## 数据平台页面
 
@@ -185,7 +184,7 @@ python -m compileall -q -x "archive" .
 python scripts/smoke_test_app.py
 ```
 
-CI 会在 Python 3.10 和 3.11 上执行相同检查。演示数据、数据库、模型、日志和回测产物均被 `.gitignore` 排除。
+可在 Python 3.10 和 3.11 环境执行相同检查。演示数据、数据库、模型、日志和回测产物均被 `.gitignore` 排除。
 
 如果历史 SQLite 缺少行情字段，可运行 `python scripts/rebuild_serving_database.py`。脚本会先备份旧库，校验新库的字段与行数，再原子替换服务层；页面也会在 SQLite 不完整时自动回退到 Processed Parquet。
 
