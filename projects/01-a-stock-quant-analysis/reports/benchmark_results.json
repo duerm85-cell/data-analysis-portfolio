@@ -1,9 +1,18 @@
 {
-  "generated_at": "2026-09-03T05:41:24.128298+00:00",
+  "generated_at": "2026-09-03T14:40:45.546704+00:00",
   "database": "D:\\2025大三下\\spark\\pythonProject2bishe\\projects\\01-a-stock-quant-analysis\\portfolio_data\\demo_serving.db",
-  "database_size_bytes": 23851008,
-  "data_version": "v2-107886329a68f35fdcda",
-  "repeats": 7,
+  "database_size_bytes": 47886336,
+  "data_version": "v2-db40488c9ed2a80467bb",
+  "repeats": 15,
+  "coverage": {
+    "detail_stock_count": 300,
+    "detail_start_date": "2025-09-11",
+    "detail_end_date": "2026-08-28",
+    "aggregate_trading_days": 756,
+    "aggregate_start_date": "2023-10-06",
+    "aggregate_end_date": "2026-08-28",
+    "stock_three_years_note": "查询条件覆盖3年；公开交互明细层只保留最近252个交易日，因此实际返回252行。"
+  },
   "results": [
     {
       "name": "stock_catalog",
@@ -12,12 +21,12 @@
         1,
         10000
       ],
-      "returned_rows": 50,
-      "repeats": 7,
-      "first_run_ms": 0.9261,
-      "median_ms": 1.136,
-      "min_ms": 0.9261,
-      "max_ms": 1.5646,
+      "returned_rows": 300,
+      "repeats": 15,
+      "first_run_ms": 2.7019,
+      "median_ms": 0.8469,
+      "min_ms": 0.7298,
+      "max_ms": 2.7019,
       "query_plan": [
         "SEARCH dim_stock USING INDEX idx_stock_has_detail (has_detail=?)"
       ]
@@ -26,15 +35,15 @@
       "name": "stock_latest_252",
       "sql": "SELECT code, date, open, high, low, close, volume, amount, ret, ma5, ma20, rsi, macd, volatility_20d, sentiment FROM fact_stock_daily_demo WHERE code = ? ORDER BY date DESC LIMIT ?",
       "parameters": [
-        "000001",
+        "000010",
         252
       ],
       "returned_rows": 252,
-      "repeats": 7,
-      "first_run_ms": 4.6036,
-      "median_ms": 2.9885,
-      "min_ms": 2.4512,
-      "max_ms": 4.6036,
+      "repeats": 15,
+      "first_run_ms": 1.2242,
+      "median_ms": 0.9287,
+      "min_ms": 0.91,
+      "max_ms": 1.4258,
       "query_plan": [
         "SEARCH fact_stock_daily_demo USING PRIMARY KEY (code=?)"
       ]
@@ -43,16 +52,16 @@
       "name": "stock_three_years",
       "sql": "SELECT code, date, open, high, low, close, volume, amount, ret, ma5, ma20, rsi, macd, volatility_20d, sentiment FROM fact_stock_daily_demo WHERE code = ? AND date BETWEEN ? AND ? ORDER BY date",
       "parameters": [
-        "000001",
-        "2023-10-06",
+        "000010",
+        "2023-08-28",
         "2026-08-28"
       ],
-      "returned_rows": 756,
-      "repeats": 7,
-      "first_run_ms": 8.0554,
-      "median_ms": 8.0554,
-      "min_ms": 6.5701,
-      "max_ms": 10.7757,
+      "returned_rows": 252,
+      "repeats": 15,
+      "first_run_ms": 0.9797,
+      "median_ms": 0.975,
+      "min_ms": 0.8947,
+      "max_ms": 1.4328,
       "query_plan": [
         "SEARCH fact_stock_daily_demo USING PRIMARY KEY (code=? AND date>? AND date<?)"
       ]
@@ -64,12 +73,12 @@
         "2026-08-28",
         10000
       ],
-      "returned_rows": 50,
-      "repeats": 7,
-      "first_run_ms": 3.7162,
-      "median_ms": 2.4992,
-      "min_ms": 1.4332,
-      "max_ms": 3.7162,
+      "returned_rows": 300,
+      "repeats": 15,
+      "first_run_ms": 6.6711,
+      "median_ms": 6.1737,
+      "min_ms": 5.7304,
+      "max_ms": 11.0133,
       "query_plan": [
         "SEARCH f USING INDEX idx_stock_daily_date (date=?)",
         "SEARCH d USING PRIMARY KEY (code=?)",
@@ -80,16 +89,16 @@
       "name": "industry_trend",
       "sql": "SELECT industry_l1, date, stock_count, average_close, average_return, median_return, total_volume, total_amount, advancing_ratio, average_sentiment FROM fact_industry_daily WHERE industry_l1 = ? AND date BETWEEN ? AND ? ORDER BY date",
       "parameters": [
-        "银行",
+        "传媒",
         "2023-10-06",
         "2026-08-28"
       ],
       "returned_rows": 756,
-      "repeats": 7,
-      "first_run_ms": 6.9284,
-      "median_ms": 5.117,
-      "min_ms": 4.7453,
-      "max_ms": 6.9284,
+      "repeats": 15,
+      "first_run_ms": 2.1288,
+      "median_ms": 2.0926,
+      "min_ms": 1.9188,
+      "max_ms": 3.259,
       "query_plan": [
         "SEARCH fact_industry_daily USING PRIMARY KEY (industry_l1=? AND date>? AND date<?)"
       ]

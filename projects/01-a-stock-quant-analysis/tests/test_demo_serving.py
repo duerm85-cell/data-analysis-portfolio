@@ -117,12 +117,18 @@ class DemoServingDatabaseTest(unittest.TestCase):
             cls.manifest_path,
             cls.quality_path,
             cls.database_path,
+            catalog_path=None,
+            market_daily_path=None,
+            industry_daily_path=None,
         )
         cls.second_build = build_demo_serving_db(
             cls.source_path,
             cls.manifest_path,
             cls.quality_path,
             cls.database_path,
+            catalog_path=None,
+            market_daily_path=None,
+            industry_daily_path=None,
         )
 
     @classmethod
@@ -194,6 +200,35 @@ class DemoServingDatabaseTest(unittest.TestCase):
         )
         details = " ".join(plan["detail"].astype(str)).upper()
         self.assertIn("PRIMARY KEY", details)
+
+    def test_stock_profile_access_is_bounded_and_industry_scoped(self):
+        metadata = data_access.get_stock_metadata(
+            "000001", database_path=self.database_path
+        )
+        self.assertEqual(metadata["code"], "000001")
+        self.assertEqual(metadata["has_detail"], 1)
+
+        peers = data_access.get_industry_peer_history(
+            metadata["industry_l1"],
+            start_date="2024-01-01",
+            end_date="2026-12-31",
+            limit=5,
+            database_path=self.database_path,
+        )
+        self.assertLessEqual(len(peers), 5)
+        self.assertEqual(set(peers["industry_l1"]), {metadata["industry_l1"]})
+        self.assertEqual(
+            set(peers.columns),
+            {
+                "code",
+                "name",
+                "industry_l1",
+                "date",
+                "close",
+                "ret",
+                "volatility_20d",
+            },
+        )
 
     def test_benchmark_covers_all_required_queries(self):
         report = run_benchmarks(self.database_path, repeats=2)

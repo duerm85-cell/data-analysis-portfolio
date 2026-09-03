@@ -1,0 +1,37 @@
+{
+  "measurement_notes": {
+    "stage1_before": "历史整表 Parquet 加载测量，与分项 SQL 查询不是完全同口径对比",
+    "stage1_after": "Git 提交 13b6961 中的7轮基准中位数",
+    "stage2_after": "benchmark_results.json 中的15轮基准中位数"
+  },
+  "stage1_before": {
+    "architecture": "full_parquet_load",
+    "rows": 37800,
+    "columns": 48,
+    "load_ms": 137.163,
+    "dataframe_bytes": 15271332
+  },
+  "stage1_after": {
+    "detail_stock_count": 50,
+    "median_ms": {
+      "stock_catalog": 1.136,
+      "stock_latest_252": 2.9885,
+      "stock_three_years": 8.0554,
+      "market_snapshot": 2.4992,
+      "industry_trend": 5.117
+    }
+  },
+  "stage2_after": {
+    "catalog_stock_count": 5200,
+    "detail_stock_count": 300,
+    "detail_rows": 75600,
+    "aggregate_trading_days": 756,
+    "median_ms": {
+      "stock_catalog": 0.8469,
+      "stock_latest_252": 0.9287,
+      "stock_three_years_requested": 0.975,
+      "market_snapshot": 6.1737,
+      "industry_trend": 2.0926
+    }
+  }
+}

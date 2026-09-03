@@ -1,25 +1,25 @@
 {
-  "generated_at": "2026-08-30T20:39:13.336726+00:00",
-  "row_count": 37800,
-  "stock_count": 50,
+  "generated_at": "2026-09-03T07:13:56.386689+00:00",
+  "row_count": 75600,
+  "stock_count": 300,
   "column_count": 48,
-  "start_date": "2023-10-06",
+  "start_date": "2025-09-11",
   "end_date": "2026-08-28",
   "invalid_date_count": 0,
   "duplicate_key_count": 0,
   "invalid_ohlc_count": 0,
-  "missing_cell_count": 50,
+  "missing_cell_count": 300,
   "raw_missing_cell_count": 0,
   "structural_factor_missing_count": 0,
-  "structural_label_missing_count": 50,
+  "structural_label_missing_count": 300,
   "unexpected_missing_cell_count": 0,
   "missing_rates": {
-    "label": 0.001323
+    "label": 0.003968
   },
   "missing_details": {
     "label": {
-      "count": 50,
-      "rate": 0.001323,
+      "count": 300,
+      "rate": 0.003968,
       "category": "structural_label",
       "reason": "每只股票末期没有下一交易日标签"
     }
@@ -31,6 +31,6 @@
   "extreme_return_count": 0,
   "quality_status": "WARN",
   "sentiment_source_distribution": {
-    "synthetic_demo": 37800
+    "synthetic_demo": 75600
   }
 }

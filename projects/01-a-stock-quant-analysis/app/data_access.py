@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from datetime import date
@@ -168,6 +169,33 @@ def _get_manifest_cached(
     if frame.empty:
         return {}
     result = frame.iloc[0].to_dict()
+    scope_value = result.get("public_scope")
+    if isinstance(scope_value, str):
+        try:
+            parsed_scope = json.loads(scope_value)
+        except (json.JSONDecodeError, TypeError):
+            parsed_scope = {"description": scope_value}
+        if isinstance(parsed_scope, dict):
+            result.update(
+                {
+                    key: parsed_scope[key]
+                    for key in (
+                        "asset_catalog_stock_count",
+                        "aggregate_market_stock_count",
+                        "aggregate_trading_day_count",
+                        "aggregate_start_date",
+                        "aggregate_end_date",
+                        "public_detail_stock_count",
+                        "public_detail_record_count",
+                        "public_detail_start_date",
+                        "public_detail_end_date",
+                        "research_scale",
+                    )
+                    if key in parsed_scope
+                }
+            )
+            result["public_scope"] = parsed_scope.get("scope", parsed_scope)
+            result["scope_description"] = parsed_scope.get("description", "")
     result["start_date"] = result.get("data_start_date")
     result["end_date"] = result.get("data_end_date")
     result["row_count"] = int(result.get("output_rows", 0))
@@ -262,6 +290,31 @@ def get_stock_catalog(
     detail_value = None if has_detail is None else int(bool(has_detail))
     return _get_stock_catalog_cached(
         *_cache_key(database_path), industry_l1, detail_value, safe_limit
+    )
+
+
+@st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
+def _get_stock_metadata_cached(
+    database_path: str,
+    mtime_ns: int,
+    database_size: int,
+    code: str,
+) -> dict:
+    columns = ", ".join(CATALOG_COLUMNS)
+    frame = _read_frame(
+        database_path,
+        f"SELECT {columns} FROM dim_stock WHERE code = ? LIMIT ?",
+        (code, 1),
+    )
+    return {} if frame.empty else frame.iloc[0].to_dict()
+
+
+def get_stock_metadata(
+    code: str,
+    database_path: str | Path | None = None,
+) -> dict:
+    return _get_stock_metadata_cached(
+        *_cache_key(database_path), _validate_code(code)
     )
 
 
@@ -433,6 +486,59 @@ def get_stock_history(
         start,
         end,
         _bounded_limit(limit, maximum=5000),
+    )
+
+
+@st.cache_data(ttl=900, max_entries=128, show_spinner=False)
+def _get_industry_peer_history_cached(
+    database_path: str,
+    mtime_ns: int,
+    database_size: int,
+    industry_l1: str,
+    start_date: str | None,
+    end_date: str | None,
+    limit: int,
+) -> pd.DataFrame:
+    conditions = ["d.industry_l1 = ?", "d.has_detail = ?"]
+    params: list = [industry_l1, 1]
+    if start_date:
+        conditions.append("f.date >= ?")
+        params.append(start_date)
+    if end_date:
+        conditions.append("f.date <= ?")
+        params.append(end_date)
+    params.append(limit)
+    return _read_frame(
+        database_path,
+        """
+        SELECT f.code, d.name, d.industry_l1, f.date, f.close,
+               f.ret, f.volatility_20d
+        FROM dim_stock AS d
+        JOIN fact_stock_daily_demo AS f ON f.code = d.code
+        WHERE """
+        + " AND ".join(conditions)
+        + " ORDER BY f.code, f.date LIMIT ?",
+        tuple(params),
+    )
+
+
+def get_industry_peer_history(
+    industry_l1: str,
+    start_date=None,
+    end_date=None,
+    limit: int = 20000,
+    database_path: str | Path | None = None,
+) -> pd.DataFrame:
+    industry = str(industry_l1).strip()
+    if not industry or len(industry) > 50:
+        raise ValueError("industry_l1 必须是 1 到 50 个字符")
+    start, end = _validate_range(start_date, end_date)
+    return _get_industry_peer_history_cached(
+        *_cache_key(database_path),
+        industry,
+        start,
+        end,
+        _bounded_limit(limit, maximum=50000),
     )
 
 

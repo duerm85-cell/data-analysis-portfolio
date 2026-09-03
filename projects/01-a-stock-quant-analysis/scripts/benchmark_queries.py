@@ -7,7 +7,7 @@ import json
 import sqlite3
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -86,12 +86,26 @@ def _read_context(conn: sqlite3.Connection) -> dict:
     ).fetchone()
     if manifest is None or stock is None:
         raise RuntimeError("服务库缺少可用于基准测试的数据")
+    detail_range = conn.execute(
+        "SELECT MIN(date), MAX(date), COUNT(DISTINCT code) "
+        "FROM fact_stock_daily_demo"
+    ).fetchone()
+    aggregate_range = conn.execute(
+        "SELECT MIN(date), MAX(date), COUNT(DISTINCT date) "
+        "FROM fact_industry_daily"
+    ).fetchone()
     return {
         "start_date": manifest[0],
         "end_date": manifest[1],
         "data_version": manifest[2],
         "code": stock[0],
         "industry": stock[1],
+        "detail_start_date": detail_range[0],
+        "detail_end_date": detail_range[1],
+        "detail_stock_count": int(detail_range[2]),
+        "aggregate_start_date": aggregate_range[0],
+        "aggregate_end_date": aggregate_range[1],
+        "aggregate_trading_days": int(aggregate_range[2]),
     }
 
 
@@ -136,19 +150,23 @@ def run_benchmarks(database_path: Path, repeats: int = 7) -> dict:
     conn = sqlite3.connect(f"file:{database_path.as_posix()}?mode=ro", uri=True)
     try:
         context = _read_context(conn)
+        requested_three_year_start = (
+            datetime.fromisoformat(context["detail_end_date"]).date()
+            - timedelta(days=3 * 365 + 1)
+        ).isoformat()
         parameters = {
             "stock_catalog": (1, 10000),
             "stock_latest_252": (context["code"], 252),
             "stock_three_years": (
                 context["code"],
-                context["start_date"],
-                context["end_date"],
+                requested_three_year_start,
+                context["detail_end_date"],
             ),
-            "market_snapshot": (context["end_date"], 10000),
+            "market_snapshot": (context["detail_end_date"], 10000),
             "industry_trend": (
                 context["industry"],
-                context["start_date"],
-                context["end_date"],
+                context["aggregate_start_date"],
+                context["aggregate_end_date"],
             ),
         }
         results = [
@@ -164,6 +182,18 @@ def run_benchmarks(database_path: Path, repeats: int = 7) -> dict:
         "database_size_bytes": database_path.stat().st_size,
         "data_version": context["data_version"],
         "repeats": repeats,
+        "coverage": {
+            "detail_stock_count": context["detail_stock_count"],
+            "detail_start_date": context["detail_start_date"],
+            "detail_end_date": context["detail_end_date"],
+            "aggregate_trading_days": context["aggregate_trading_days"],
+            "aggregate_start_date": context["aggregate_start_date"],
+            "aggregate_end_date": context["aggregate_end_date"],
+            "stock_three_years_note": (
+                "查询条件覆盖3年；公开交互明细层只保留最近252个交易日，"
+                "因此实际返回252行。"
+            ),
+        },
         "results": results,
     }
 

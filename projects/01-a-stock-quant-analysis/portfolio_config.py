@@ -7,8 +7,11 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent
 PORTFOLIO_DATA_DIR = PROJECT_DIR / "portfolio_data"
 DEMO_SERVING_DB_PATH = PORTFOLIO_DATA_DIR / "demo_serving.db"
+PORTFOLIO_STOCK_CATALOG_PATH = PORTFOLIO_DATA_DIR / "portfolio_stock_catalog.csv"
 PORTFOLIO_FACTORS_PATH = PORTFOLIO_DATA_DIR / "portfolio_factors.parquet"
 PORTFOLIO_SENTIMENT_PATH = PORTFOLIO_DATA_DIR / "portfolio_sentiment.parquet"
+PORTFOLIO_MARKET_DAILY_PATH = PORTFOLIO_DATA_DIR / "portfolio_market_daily.parquet"
+PORTFOLIO_INDUSTRY_DAILY_PATH = PORTFOLIO_DATA_DIR / "portfolio_industry_daily.parquet"
 PORTFOLIO_MANIFEST_PATH = PORTFOLIO_DATA_DIR / "portfolio_manifest.json"
 PORTFOLIO_QUALITY_PATH = PORTFOLIO_DATA_DIR / "portfolio_quality.json"
 PORTFOLIO_TRAINING_LOG_PATH = PORTFOLIO_DATA_DIR / "portfolio_training_log.json"

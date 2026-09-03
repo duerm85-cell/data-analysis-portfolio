@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import time
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,8 +22,11 @@ if str(PROJECT_DIR) not in sys.path:
 
 from portfolio_config import (  # noqa: E402
     PORTFOLIO_FACTORS_PATH,
+    PORTFOLIO_INDUSTRY_DAILY_PATH,
     PORTFOLIO_MANIFEST_PATH,
+    PORTFOLIO_MARKET_DAILY_PATH,
     PORTFOLIO_QUALITY_PATH,
+    PORTFOLIO_STOCK_CATALOG_PATH,
 )
 
 
@@ -61,6 +65,18 @@ FACTOR_IC_COLUMNS = (
 )
 
 
+def _replace_with_retry(source: Path, destination: Path, attempts: int = 8) -> None:
+    """Windows 杀毒/索引进程短暂占用目标文件时重试原子替换。"""
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.15 * (attempt + 1))
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -70,6 +86,16 @@ def _sha256(path: Path) -> str:
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _combined_source_hash(paths: tuple[Path, ...]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        if not path.exists():
+            continue
+        digest.update(path.name.encode("utf-8"))
+        digest.update(_sha256(path).encode("ascii"))
     return digest.hexdigest()
 
 
@@ -124,7 +150,41 @@ def _normalise_source(frame: pd.DataFrame) -> pd.DataFrame:
     return result.reset_index(drop=True)
 
 
-def _build_stock_dimension(frame: pd.DataFrame, source_label: str, updated_at: str) -> pd.DataFrame:
+def _build_stock_dimension(
+    frame: pd.DataFrame,
+    source_label: str,
+    updated_at: str,
+    catalog_path: Path | None = None,
+) -> pd.DataFrame:
+    if catalog_path is not None and catalog_path.exists():
+        catalog = pd.read_csv(catalog_path, dtype={"code": str})
+        required = (
+            "code",
+            "name",
+            "market",
+            "board",
+            "industry_l1",
+            "list_date",
+            "is_demo",
+            "has_detail",
+            "source",
+            "updated_at",
+        )
+        missing = set(required) - set(catalog.columns)
+        if missing:
+            raise ValueError(f"资产目录缺少必要字段: {sorted(missing)}")
+        catalog = catalog[list(required)].copy()
+        catalog["code"] = catalog["code"].astype(str).str.zfill(6)
+        catalog = catalog.drop_duplicates("code", keep="last")
+        detail_codes = set(frame["code"].unique())
+        missing_detail_codes = detail_codes - set(catalog["code"])
+        if missing_detail_codes:
+            raise ValueError(
+                f"资产目录未覆盖 {len(missing_detail_codes)} 个明细代码"
+            )
+        catalog["has_detail"] = catalog["code"].isin(detail_codes).astype(int)
+        return catalog.sort_values("code").reset_index(drop=True)
+
     codes = sorted(frame["code"].unique())
     records = []
     for index, code in enumerate(codes):
@@ -144,6 +204,75 @@ def _build_stock_dimension(frame: pd.DataFrame, source_label: str, updated_at: s
             }
         )
     return pd.DataFrame.from_records(records)
+
+
+def _load_market_daily(
+    source_path: Path | None,
+    fallback_frame: pd.DataFrame,
+    source_label: str,
+    data_version: str,
+) -> pd.DataFrame:
+    if source_path is None or not source_path.exists():
+        return _build_market_daily(fallback_frame, source_label, data_version)
+    daily = pd.read_parquet(source_path).copy()
+    required = (
+        "date",
+        "stock_count",
+        "advancing_count",
+        "declining_count",
+        "flat_count",
+        "total_volume",
+        "total_amount",
+        "average_close",
+        "average_return",
+        "median_return",
+        "average_sentiment",
+    )
+    missing = set(required) - set(daily.columns)
+    if missing:
+        raise ValueError(f"市场预聚合缺少必要字段: {sorted(missing)}")
+    daily = daily[list(required)].copy()
+    daily["date"] = pd.to_datetime(daily["date"], errors="coerce")
+    daily = daily.dropna(subset=["date"]).drop_duplicates("date", keep="last")
+    daily["date"] = daily["date"].dt.strftime("%Y-%m-%d")
+    daily["source"] = source_label
+    daily["data_version"] = data_version
+    return daily.sort_values("date").reset_index(drop=True)
+
+
+def _load_industry_daily(
+    source_path: Path | None,
+    fallback_frame: pd.DataFrame,
+    stock_dimension: pd.DataFrame,
+    data_version: str,
+) -> pd.DataFrame:
+    if source_path is None or not source_path.exists():
+        return _build_industry_daily(
+            fallback_frame, stock_dimension, data_version
+        )
+    daily = pd.read_parquet(source_path).copy()
+    required = (
+        "industry_l1",
+        "date",
+        "stock_count",
+        "average_close",
+        "average_return",
+        "median_return",
+        "total_volume",
+        "total_amount",
+        "advancing_ratio",
+        "average_sentiment",
+    )
+    missing = set(required) - set(daily.columns)
+    if missing:
+        raise ValueError(f"行业预聚合缺少必要字段: {sorted(missing)}")
+    daily = daily[list(required)].copy()
+    daily["date"] = pd.to_datetime(daily["date"], errors="coerce")
+    daily = daily.dropna(subset=["industry_l1", "date"])
+    daily = daily.drop_duplicates(["industry_l1", "date"], keep="last")
+    daily["date"] = daily["date"].dt.strftime("%Y-%m-%d")
+    daily["data_version"] = data_version
+    return daily.sort_values(["industry_l1", "date"]).reset_index(drop=True)
 
 
 def _build_market_daily(frame: pd.DataFrame, source_label: str, data_version: str) -> pd.DataFrame:
@@ -354,6 +483,9 @@ def build_demo_serving_db(
     manifest_path: Path = PORTFOLIO_MANIFEST_PATH,
     quality_path: Path = PORTFOLIO_QUALITY_PATH,
     output_path: Path = DEFAULT_OUTPUT_PATH,
+    catalog_path: Path | None = PORTFOLIO_STOCK_CATALOG_PATH,
+    market_daily_path: Path | None = PORTFOLIO_MARKET_DAILY_PATH,
+    industry_daily_path: Path | None = PORTFOLIO_INDUSTRY_DAILY_PATH,
 ) -> dict:
     """Rebuild the serving database in a temporary file and atomically replace it."""
     _ensure_source(source_path)
@@ -362,7 +494,18 @@ def build_demo_serving_db(
 
     manifest = _load_json(manifest_path)
     quality = _load_json(quality_path)
-    source_hash = _sha256(source_path)
+    source_hash = _combined_source_hash(
+        tuple(
+            path
+            for path in (
+                source_path,
+                catalog_path,
+                market_daily_path,
+                industry_daily_path,
+            )
+            if path is not None
+        )
+    )
     data_version = f"v2-{source_hash[:20]}"
     started_at = _utc_now()
     source_label = str(
@@ -371,9 +514,15 @@ def build_demo_serving_db(
 
     frame = _normalise_source(pd.read_parquet(source_path))
     frame["data_version"] = data_version
-    stock_dimension = _build_stock_dimension(frame, source_label, started_at)
-    market_daily = _build_market_daily(frame, source_label, data_version)
-    industry_daily = _build_industry_daily(frame, stock_dimension, data_version)
+    stock_dimension = _build_stock_dimension(
+        frame, source_label, started_at, catalog_path=catalog_path
+    )
+    market_daily = _load_market_daily(
+        market_daily_path, frame, source_label, data_version
+    )
+    industry_daily = _load_industry_daily(
+        industry_daily_path, frame, stock_dimension, data_version
+    )
     factor_ic = _build_factor_ic(frame, data_version)
     quality_run, quality_issues = _quality_rows(quality, data_version)
 
@@ -412,11 +561,64 @@ def build_demo_serving_db(
                     "mode": str(manifest.get("mode", "portfolio_synthetic_demo")),
                     "source_label": source_label,
                     "selection_rule": str(manifest.get("selection", "")),
-                    "public_scope": str(
-                        manifest.get(
-                            "research_artifact_scope",
-                            "公开交互行情与本地研究产物分离。",
-                        )
+                    "public_scope": json.dumps(
+                        {
+                            "description": manifest.get(
+                                "research_artifact_scope",
+                                "公开交互行情与本地研究产物分离。",
+                            ),
+                            "asset_catalog_stock_count": int(
+                                manifest.get(
+                                    "asset_catalog_stock_count",
+                                    len(stock_dimension),
+                                )
+                            ),
+                            "aggregate_market_stock_count": int(
+                                manifest.get(
+                                    "aggregate_market_stock_count",
+                                    market_daily["stock_count"].max(),
+                                )
+                            ),
+                            "aggregate_trading_day_count": int(
+                                manifest.get(
+                                    "aggregate_trading_day_count",
+                                    len(market_daily),
+                                )
+                            ),
+                            "aggregate_start_date": manifest.get(
+                                "aggregate_start_date",
+                                str(market_daily["date"].min()),
+                            ),
+                            "aggregate_end_date": manifest.get(
+                                "aggregate_end_date",
+                                str(market_daily["date"].max()),
+                            ),
+                            "public_detail_stock_count": int(
+                                manifest.get(
+                                    "public_detail_stock_count",
+                                    frame["code"].nunique(),
+                                )
+                            ),
+                            "public_detail_record_count": int(
+                                manifest.get(
+                                    "public_detail_record_count",
+                                    len(frame),
+                                )
+                            ),
+                            "public_detail_start_date": manifest.get(
+                                "public_detail_start_date",
+                                str(frame["date"].min()),
+                            ),
+                            "public_detail_end_date": manifest.get(
+                                "public_detail_end_date",
+                                str(frame["date"].max()),
+                            ),
+                            "research_scale": manifest.get(
+                                "research_scale", {"status": "not_available"}
+                            ),
+                            "scope": manifest.get("public_scope", {}),
+                        },
+                        ensure_ascii=False,
                     ),
                     "disclaimer": str(
                         manifest.get(
@@ -439,6 +641,8 @@ def build_demo_serving_db(
             raise RuntimeError(f"SQLite 完整性校验失败: {integrity}")
         if conn.execute("SELECT COUNT(1) FROM fact_stock_daily_demo").fetchone()[0] != len(frame):
             raise RuntimeError("SQLite 明细行数与源数据不一致")
+        if conn.execute("SELECT COUNT(1) FROM dim_stock").fetchone()[0] != len(stock_dimension):
+            raise RuntimeError("SQLite 资产目录行数与源目录不一致")
     except Exception:
         conn.close()
         if temporary_path.exists():
@@ -447,7 +651,7 @@ def build_demo_serving_db(
     else:
         conn.close()
 
-    os.replace(temporary_path, output_path)
+    _replace_with_retry(temporary_path, output_path)
     readonly = sqlite3.connect(f"file:{output_path.as_posix()}?mode=ro", uri=True)
     try:
         statistics = _database_statistics(readonly, output_path)
@@ -463,12 +667,22 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, default=PORTFOLIO_MANIFEST_PATH)
     parser.add_argument("--quality", type=Path, default=PORTFOLIO_QUALITY_PATH)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
+    parser.add_argument("--catalog", type=Path, default=PORTFOLIO_STOCK_CATALOG_PATH)
+    parser.add_argument(
+        "--market-daily", type=Path, default=PORTFOLIO_MARKET_DAILY_PATH
+    )
+    parser.add_argument(
+        "--industry-daily", type=Path, default=PORTFOLIO_INDUSTRY_DAILY_PATH
+    )
     args = parser.parse_args()
     statistics = build_demo_serving_db(
         source_path=args.source,
         manifest_path=args.manifest,
         quality_path=args.quality,
         output_path=args.output,
+        catalog_path=args.catalog,
+        market_daily_path=args.market_daily,
+        industry_daily_path=args.industry_daily,
     )
     print(json.dumps(statistics, ensure_ascii=False, indent=2))
 

@@ -2,10 +2,12 @@
 
 本目录的公开数据由两个可重复步骤生成：
 
-1. `python scripts/build_portfolio_dataset.py` 使用固定随机种子生成离线 Parquet 构建源；
+1. `python scripts/build_portfolio_v2_dataset.py` 使用固定随机种子生成资产目录、市场/行业预聚合和分层明细；
 2. `python scripts/build_demo_serving_db.py` 生成 Streamlit 实际读取的 `demo_serving.db`。
 
 - 交互行情是与任何真实证券价格无对应关系的确定性合成数据，不再分发数据源逐日行情。
+- 资产目录为5,200只，市场/行业汇总覆盖756个交易日，交互明细为300只×252日。
+- 300只明细标的使用固定种子按“一级行业×板块”分层抽样，每个非空分层至少保留1只。
 - 不包含 Tushare Token、用户数据库、密码摘要或其他凭证。
 - 页面会明确标注样本范围、生成时间和“非实时、非投资建议”口径。
 - 模型指标与回测曲线只保存小型研究摘要，不包含模型权重或逐样本预测文件。

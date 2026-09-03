@@ -25,6 +25,8 @@ from app.data_access import (
     get_stock_catalog,
     get_stock_history,
 )
+from app.stock_profile import render_stock_profile
+from app.industry_analysis import render_industry_analysis
 from portfolio_config import (
     PORTFOLIO_BACKTEST_METRICS_PATH,
     PORTFOLIO_BACKTEST_RESULTS_PATH,
@@ -1698,8 +1700,8 @@ def show_backtest():
 
 def show_data_platform():
     """面向数据开发岗位的数据资产、质量和血缘监控首页。"""
-    st.markdown("<div class='main-title'>量化数据平台</div>", unsafe_allow_html=True)
-    st.caption("Market Data Lakehouse · 数据质量、存储服务与任务产物统一监控")
+    st.markdown("<div class='main-title'>数据资产驾驶舱</div>", unsafe_allow_html=True)
+    st.caption("A 股量化数据工程平台 · 资产目录、研究覆盖、在线分析与质量状态")
     manifest = get_manifest()
     asset_summary = get_asset_summary()
     quality_runs = get_quality_runs(limit=1)
@@ -1756,49 +1758,88 @@ def show_data_platform():
         'zero_volume_count': int(issue_counts.get('zero_volume', 0)),
         'extreme_return_count': int(issue_counts.get('extreme_return', 0)),
     }
-    latest_date = pd.to_datetime(manifest['end_date'])
+    aggregate_end_date = manifest.get('aggregate_end_date', manifest['end_date'])
+    latest_date = pd.to_datetime(aggregate_end_date)
     freshness_days = max((pd.Timestamp.now().normalize() - latest_date).days, 0)
     source_label = manifest.get('source_label', 'SQLite 服务层')
+    research_scale = manifest.get('research_scale') or {}
+    research_stock_count = int(research_scale.get('stock_count', 0) or 0)
+    research_record_count = int(research_scale.get('record_count', 0) or 0)
+    catalog_stock_count = int(
+        manifest.get('asset_catalog_stock_count', asset_summary['catalog_stock_count'])
+    )
+    public_stock_count = int(
+        manifest.get('public_detail_stock_count', asset_summary['detail_stock_count'])
+    )
+    public_record_count = int(
+        manifest.get('public_detail_record_count', asset_summary['record_count'])
+    )
+    aggregate_trading_days = int(
+        manifest.get('aggregate_trading_day_count', asset_summary['trading_day_count'])
+    )
+    finished_at = pd.to_datetime(manifest.get('finished_at'), errors='coerce')
+    updated_text = (
+        finished_at.strftime('%Y-%m-%d %H:%M UTC')
+        if pd.notna(finished_at) else '未记录'
+    )
+    quality_score = float(asset_summary.get('quality_score', 0) or 0)
     if freshness_days > 7:
         st.warning(
-            f"当前数据水位为 {report['end_date']}，距今天 {freshness_days} 天；"
+            f"当前聚合数据水位为 {aggregate_end_date}，距今天 {freshness_days} 天；"
             "页面展示的是历史快照，不是实时行情。"
         )
 
-    columns = st.columns(5)
+    st.info(
+        "三种口径严格分离：资产目录与在线行情为确定性合成数据；"
+        "研究覆盖数字来自本地真实数据质量报告；公开网页不分发真实逐日行情。"
+    )
     metric_values = [
-        (f"{report['row_count']:,}", "因子记录"),
-        (f"{report['stock_count']:,}", "股票数量"),
-        (report['end_date'], "数据水位"),
-        (f"{report['duplicate_key_count']:,}", "重复主键"),
-        (f"{freshness_days} 天", "数据延迟"),
+        (f"{catalog_stock_count:,}", "资产目录", "完整规模目录"),
+        (f"{research_stock_count:,}", "本地研究覆盖", f"{research_record_count:,} 条真实研究记录"),
+        (f"{public_stock_count:,}", "在线分析资产", "分层代表样本"),
+        (f"{public_record_count:,}", "在线明细记录", "SQLite 按需查询"),
+        (f"{aggregate_trading_days:,}", "聚合交易日", f"水位 {aggregate_end_date}"),
+        (f"{quality_score:.1f}", "数据质量评分", f"状态 {report['quality_status']}"),
     ]
-    for column, (value, label) in zip(columns, metric_values):
-        with column:
-            value_class = 'metric-value metric-value-compact' if label == '数据水位' else 'metric-value'
-            st.markdown(
-                f"<div class='metric-card'><div class='{value_class}'>{value}</div>"
-                f"<div class='metric-label'>{label}</div></div>",
-                unsafe_allow_html=True,
-            )
+    for row_start in (0, 3):
+        columns = st.columns(3)
+        for column, (value, label, description) in zip(
+            columns, metric_values[row_start:row_start + 3]
+        ):
+            with column:
+                st.markdown(
+                    "<div class='metric-card'>"
+                    f"<div class='metric-value'>{value}</div>"
+                    f"<div class='metric-label'>{label}</div>"
+                    f"<div style='font-size:12px;color:#8FA1B7;margin-top:6px;'>{description}</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
 
-    st.markdown("<div class='section-title'>数据血缘与任务状态</div>", unsafe_allow_html=True)
-    stage_status = [
-        ("SOURCE", report['stock_count'], "确定性合成股票"),
-        ("FEATURE", report['row_count'], "公开因子明细"),
-        ("QUALITY", len(quality_runs), f"质量状态 {report.get('quality_status', 'N/A')}"),
-        ("SERVING", report['row_count'], "SQLite 按需查询"),
+    st.caption(
+        f"服务库发布：{updated_text} ｜ 数据版本：{manifest.get('data_version', 'N/A')} ｜ "
+        f"查询模式：只读 SQLite + 参数化 SQL + st.cache_data"
+    )
+
+    st.markdown("<div class='section-title'>数据血缘与服务链路</div>", unsafe_allow_html=True)
+    lineage_stages = [
+        ("SOURCE", "本地真实研究 / 公开合成源"),
+        ("RAW · CLEAN", "贴源留存、标准化与质量规则"),
+        ("FACTOR", "技术因子、标签与研究产物"),
+        ("AGGREGATE", "市场、行业、因子 IC 预聚合"),
+        ("SERVING", "SQLite 索引与只读查询"),
+        ("PRODUCT", "Streamlit 数据产品"),
     ]
-    stage_columns = st.columns(4)
-    for index, (stage, count, description) in enumerate(stage_status):
+    stage_columns = st.columns(len(lineage_stages))
+    for index, (stage, description) in enumerate(lineage_stages):
         with stage_columns[index]:
-            status = "READY" if count else "WAITING"
-            status_color = "#33C58E" if count else "#E8A84B"
             st.markdown(
-                f"<div class='metric-card' style='text-align:left;'>"
-                f"<div style='font-size:12px;color:{status_color};font-weight:700;'>{status}</div>"
-                f"<div style='font-size:20px;font-weight:700;margin:8px 0;'>{stage}</div>"
-                f"<div style='font-size:13px;color:#8FA1B7;'>{description} · {count:,}</div></div>",
+                "<div class='metric-card' style='text-align:center;min-height:142px;padding:16px 10px;'>"
+                "<div style='font-size:11px;color:#33C58E;font-weight:700;'>READY</div>"
+                f"<div style='font-size:15px;font-weight:800;margin:8px 0;'>{stage}</div>"
+                f"<div style='font-size:11px;color:#8FA1B7;line-height:1.5;'>{description}</div>"
+                "</div>"
+                + ("<div style='text-align:center;color:#2E86AB;font-size:22px;'>→</div>" if index < len(lineage_stages) - 1 else ""),
                 unsafe_allow_html=True,
             )
 
@@ -1930,7 +1971,7 @@ def main():
         st.rerun()
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📱 页面导航")
-    pages = [('数据平台', 'platform'), ('市场总览', 'dashboard'), ('系统概览', 'overview'), ('数据洞察', 'data_insight'), ('因子研究', 'factor'), ('情绪分析', 'sentiment'), ('模型预测', 'prediction'), ('策略回测', 'backtest')]
+    pages = [('数据平台', 'platform'), ('市场总览', 'dashboard'), ('股票画像', 'stock_profile'), ('行业分析', 'industry'), ('系统概览', 'overview'), ('数据洞察', 'data_insight'), ('因子研究', 'factor'), ('情绪分析', 'sentiment'), ('模型预测', 'prediction'), ('策略回测', 'backtest')]
     page_labels = [p[0] for p in pages]
     page = st.sidebar.radio("页面导航", page_labels, index=0, label_visibility='collapsed', key='main_page')
     st.sidebar.markdown("---")
@@ -1979,6 +2020,10 @@ def main():
         show_data_platform()
     elif page == "市场总览":
         show_dashboard()
+    elif page == "股票画像":
+        render_stock_profile()
+    elif page == "行业分析":
+        render_industry_analysis()
     elif page == "系统概览":
         show_system_overview()
     elif page == "数据洞察":
