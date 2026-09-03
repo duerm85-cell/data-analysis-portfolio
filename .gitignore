@@ -52,6 +52,7 @@ projects/01-a-stock-quant-analysis/training_log.json
 projects/01-a-stock-quant-analysis/data_cleaning_report.txt
 projects/01-a-stock-quant-analysis/reports/**
 !projects/01-a-stock-quant-analysis/reports/README.md
+!projects/01-a-stock-quant-analysis/reports/benchmark_results.json
 
 # 临时文件
 *.tmp

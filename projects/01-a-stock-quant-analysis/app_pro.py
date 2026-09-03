@@ -1,6 +1,5 @@
 import os
 import sys
-import glob
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -13,16 +12,23 @@ import sqlite3
 import hashlib
 import hmac
 import secrets
-from scipy.stats import spearmanr
-from data_quality import build_quality_report
+from app.data_access import (
+    get_asset_summary,
+    get_factor_catalog,
+    get_factor_ic,
+    get_latest_quotes,
+    get_manifest,
+    get_market_snapshot,
+    get_market_summary,
+    get_quality_issues,
+    get_quality_runs,
+    get_stock_catalog,
+    get_stock_history,
+)
 from portfolio_config import (
     PORTFOLIO_BACKTEST_METRICS_PATH,
     PORTFOLIO_BACKTEST_RESULTS_PATH,
     PORTFOLIO_DAILY_PORTFOLIOS_PATH,
-    PORTFOLIO_FACTORS_PATH,
-    PORTFOLIO_MANIFEST_PATH,
-    PORTFOLIO_QUALITY_PATH,
-    PORTFOLIO_SENTIMENT_PATH,
     PORTFOLIO_TRAINING_LOG_PATH,
     is_portfolio_mode,
 )
@@ -103,7 +109,11 @@ def db_register(username, password):
 def db_login(username, password):
     conn = _get_db_conn()
     try:
-        row = conn.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+        row = conn.execute(
+            'SELECT id, username, password_hash, theme, top_n, watchlist '
+            'FROM users WHERE username=?',
+            (username,),
+        ).fetchone()
         if row is None:
             return None
         is_valid, is_legacy = _verify_password(username, password, row['password_hash'])
@@ -137,7 +147,11 @@ def db_update_user(username, **kwargs):
 
 def db_get_user(username):
     conn = _get_db_conn()
-    row = conn.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+    row = conn.execute(
+        'SELECT id, username, password_hash, theme, top_n, watchlist '
+        'FROM users WHERE username=?',
+        (username,),
+    ).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -404,9 +418,6 @@ def _count_raw_records():
     return total
 
 
-REQUIRED_MARKET_COLUMNS = {
-    'code', 'date', 'open', 'high', 'low', 'close', 'volume', 'amount'
-}
 ANALYTIC_FACTOR_COLUMNS = [
     'ret_5d', 'momentum_20d', 'reversal_5d', 'ma5', 'ma10', 'ma20',
     'ma5_ma10_diff', 'ma5_ma20_diff', 'macd', 'macd_signal', 'rsi',
@@ -415,187 +426,6 @@ ANALYTIC_FACTOR_COLUMNS = [
     'amount_ratio', 'close_open_ratio', 'sentiment', 'sentiment_ma5',
     'sentiment_ma10',
 ]
-
-
-def _prepare_factor_frame(frame, source_label):
-    """统一服务层数据类型，并保留可展示的数据来源。"""
-    frame = frame.copy()
-    missing = REQUIRED_MARKET_COLUMNS - set(frame.columns)
-    if missing:
-        raise ValueError(f"数据源缺少行情字段: {sorted(missing)}")
-    frame['code'] = (
-        frame['code'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
-    )
-    frame['date'] = pd.to_datetime(frame['date'], errors='coerce')
-    frame = frame.dropna(subset=['code', 'date', 'close'])
-    if 'sentiment_source' not in frame.columns:
-        frame['sentiment_source'] = 'legacy_unknown'
-    frame.attrs['source_label'] = source_label
-    return frame
-
-
-def _market_source_label(base_dir, serving_layer):
-    manifest_path = os.path.join(
-        base_dir, 'data', 'processed', 'market_update_manifest.json'
-    )
-    if not os.path.exists(manifest_path):
-        return serving_layer
-    try:
-        with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
-            manifest = json.load(manifest_file)
-        source = manifest.get('source')
-        if source:
-            return f"{serving_layer} · 历史 Tushare + {source} 增量"
-    except (OSError, ValueError, TypeError):
-        pass
-    return serving_layer
-
-
-@st.cache_resource(show_spinner=False)
-def load_data():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(base_dir, 'data', 'processed')
-    df_factors = None
-    df_sentiment = None
-    df_results = None
-    factors_path = os.path.join(data_path, 'all_factors.parquet')
-    database_path = os.path.join(base_dir, 'data', 'stock_data.db')
-    sqlite_skip_reason = None
-    if PORTFOLIO_MODE:
-        if PORTFOLIO_FACTORS_PATH.exists():
-            source_label = '公开作品集 · 确定性合成演示行情'
-            if PORTFOLIO_MANIFEST_PATH.exists():
-                try:
-                    with open(PORTFOLIO_MANIFEST_PATH, 'r', encoding='utf-8') as file:
-                        source_label = json.load(file).get('source_label', source_label)
-                except (OSError, ValueError, TypeError):
-                    pass
-            df_factors = _prepare_factor_frame(
-                pd.read_parquet(PORTFOLIO_FACTORS_PATH), source_label
-            )
-        if PORTFOLIO_SENTIMENT_PATH.exists():
-            df_sentiment = pd.read_parquet(PORTFOLIO_SENTIMENT_PATH)
-        return df_factors, df_sentiment, df_results
-    # 分析页面需要整张因子宽表：列式 Parquet 比 SQLite 全表逐行读取快得多。
-    # SQLite 继续作为参数化查询服务层，并在 Parquet 不可用时兜底。
-    if os.path.exists(factors_path):
-        try:
-            df_factors = _prepare_factor_frame(
-                pd.read_parquet(factors_path),
-                _market_source_label(base_dir, 'Processed Parquet 快照'),
-            )
-        except (OSError, ValueError, TypeError) as exc:
-            sqlite_skip_reason = f"Parquet 读取失败: {exc}"
-            df_factors = None
-    if df_factors is None and os.path.exists(database_path):
-        conn = sqlite3.connect(database_path)
-        try:
-            factor_columns = {
-                row[1] for row in conn.execute('PRAGMA table_info(factors)').fetchall()
-            }
-            missing_columns = REQUIRED_MARKET_COLUMNS - factor_columns
-            if missing_columns:
-                sqlite_skip_reason = f"SQLite 缺少字段: {sorted(missing_columns)}"
-            else:
-                factor_count = conn.execute('SELECT COUNT(*) FROM factors').fetchone()[0]
-                if factor_count:
-                    df_factors = _prepare_factor_frame(
-                        pd.read_sql_query('SELECT * FROM factors', conn),
-                        _market_source_label(base_dir, 'SQLite 服务层'),
-                    )
-        except (sqlite3.Error, ValueError) as exc:
-            sqlite_skip_reason = str(exc)
-            df_factors = None
-        finally:
-            conn.close()
-    if df_factors is None:
-        factors_csv_path = os.path.join(data_path, 'all_factors.csv')
-        if os.path.exists(factors_csv_path):
-            df_factors = _prepare_factor_frame(
-                pd.read_csv(factors_csv_path),
-                _market_source_label(base_dir, 'Processed CSV 快照'),
-            )
-    sentiment_path = os.path.join(data_path, 'sentiment_data.parquet')
-    if os.path.exists(sentiment_path):
-        df_sentiment = pd.read_parquet(sentiment_path)
-    else:
-        sentiment_csv_path = os.path.join(data_path, 'sentiment_data.csv')
-        if os.path.exists(sentiment_csv_path):
-            df_sentiment = pd.read_csv(sentiment_csv_path, parse_dates=['date'])
-    results_dir = os.path.join(base_dir, 'results_optimized')
-    if os.path.exists(results_dir):
-        results_files = [f for f in os.listdir(results_dir) if f.endswith('.csv') and 'metrics' in f]
-        if results_files:
-            latest_results = sorted(results_files)[-1]
-            df_results = pd.read_csv(os.path.join(results_dir, latest_results))
-    return df_factors, df_sentiment, df_results
-
-
-@st.cache_resource(show_spinner=False)
-def load_platform_quality_summary():
-    """缓存全表质量扫描结果，避免每次切页复制和遍历 56 万行宽表。"""
-    df_factors, _, _ = load_data()
-    if df_factors is None or df_factors.empty:
-        return None, 0
-    report_path = (
-        str(PORTFOLIO_QUALITY_PATH)
-        if PORTFOLIO_MODE
-        else _P('reports', 'data_quality.json')
-    )
-    if os.path.exists(report_path):
-        try:
-            with open(report_path, 'r', encoding='utf-8') as report_file:
-                saved_report = json.load(report_file)
-            current_end_date = pd.to_datetime(df_factors['date']).max().strftime('%Y-%m-%d')
-            if (
-                int(saved_report.get('row_count', -1)) == len(df_factors)
-                and saved_report.get('end_date') == current_end_date
-                and 'quality_status' in saved_report
-                and 'missing_details' in saved_report
-            ):
-                missing_cell_count = saved_report.get('missing_cell_count')
-                if missing_cell_count is None:
-                    missing_cell_count = int(sum(
-                        float(rate) * len(df_factors)
-                        for rate in saved_report.get('missing_rates', {}).values()
-                    ))
-                return saved_report, int(missing_cell_count)
-        except (OSError, ValueError, TypeError):
-            pass
-    report = build_quality_report(df_factors)
-    missing_cell_count = int(report['missing_cell_count'])
-    return report, missing_cell_count
-
-
-@st.cache_resource(show_spinner=False)
-def load_dashboard_snapshot():
-    """缓存市场总览所需的小型快照，避免切页时反复扫描全表或打开数百个 CSV。"""
-    df_factors, _, _ = load_data()
-    if df_factors is None or df_factors.empty:
-        return None
-    factor_dates = pd.to_datetime(df_factors['date'])
-    latest_date = factor_dates.max()
-    latest_frame = df_factors.loc[factor_dates == latest_date].copy()
-    code_to_board = {
-        code: classify_board(code) for code in df_factors['code'].drop_duplicates()
-    }
-    if 'amount' in df_factors.columns:
-        board_amount = pd.DataFrame(
-            {
-                '板块': df_factors['code'].map(code_to_board),
-                'amount': df_factors['amount'],
-            }
-        ).groupby('板块', as_index=False)['amount'].sum()
-    else:
-        board_amount = pd.DataFrame()
-    return {
-        'latest_date': latest_date,
-        'latest_frame': latest_frame,
-        'stock_count': int(df_factors['code'].nunique()),
-        'record_count': int(len(df_factors)),
-        'start_date': factor_dates.min(),
-        'board_amount': board_amount.sort_values('amount', ascending=False),
-    }
 
 
 def st_card():
@@ -619,9 +449,9 @@ def classify_board(code):
 def show_system_overview():
     theme = st.session_state.get('theme', 'dark')
     st.markdown(f"<div class='main-title' style='text-align: center;'>A股量化数据工程平台</div>", unsafe_allow_html=True)
-    df_factors, df_sentiment, df_results = load_data()
+    asset_summary = get_asset_summary()
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    if df_factors is None:
+    if not asset_summary:
         st.warning("⚠️ 请先生成数据")
         return
     col1, col2, col3 = st.columns(3)
@@ -631,11 +461,11 @@ def show_system_overview():
             st.markdown(f"""
                 <div style='margin: 15px 0;'>
                     <div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>总记录数</div>
-                    <div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{len(df_factors):,}</div>
+                    <div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{asset_summary['record_count']:,}</div>
                 </div>
                 <div style='margin: 15px 0;'>
                     <div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>股票数量</div>
-                    <div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{df_factors['code'].nunique()}</div>
+                    <div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{asset_summary['detail_stock_count']}</div>
                 </div>
                 """, unsafe_allow_html=True)
     _log_xgb_acc, _log_xgb_auc, _log_xgb_mse = 0.5177, 0.5346, 0.249826
@@ -743,7 +573,11 @@ def show_system_overview():
         else '至少一个模型表现出一定的样本外区分度。'
     )
     backtest_conclusion = '尚未生成修正版回测结果。'
-    backtest_metrics_path = _P('backtest_results', 'backtest_metrics.csv')
+    backtest_metrics_path = (
+        str(PORTFOLIO_BACKTEST_METRICS_PATH)
+        if PORTFOLIO_MODE
+        else _P('backtest_results', 'backtest_metrics.csv')
+    )
     if os.path.exists(backtest_metrics_path):
         try:
             backtest_metrics = pd.read_csv(backtest_metrics_path).iloc[0]
@@ -773,49 +607,46 @@ def show_system_overview():
 
 def show_data_insight():
     st.markdown("<div class='main-title'>📊 数据洞察</div>", unsafe_allow_html=True)
-    df_factors, df_sentiment, _ = load_data()
+    stock_catalog = get_stock_catalog(has_detail=True)
+    market_summary = get_market_summary()
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    if df_factors is None:
+    if stock_catalog.empty or market_summary.empty:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先加载数据</div>", unsafe_allow_html=True)
         return
-    factor_dates = pd.to_datetime(df_factors['date'])
     with st_card():
-        stock_universe = df_factors[['code']].drop_duplicates().copy()
-        stock_universe['板块'] = stock_universe['code'].map(classify_board)
-        board_counts = stock_universe['板块'].value_counts()
+        board_counts = stock_catalog['board'].value_counts()
         pie_colors = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
         fig_pie = go.Figure(go.Pie(labels=board_counts.index.tolist(), values=board_counts.values, marker=dict(colors=pie_colors, line=dict(color=colors['paper_bg'], width=2)), textinfo='label+percent+value', textfont=dict(color=colors['font_color'], size=14), hole=0.4, pull=0.03))
         fig_pie.update_layout(height=400, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='🏛️ 股票市场板块分布', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=60, t=60, b=40), legend=dict(font=dict(size=13, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1))
         st.plotly_chart(fig_pie, width='stretch', config={'displayModeBar': False})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     with st_card():
-        daily_avg_close = (
-            pd.DataFrame({'date': factor_dates, 'close': df_factors['close']})
-            .groupby('date', as_index=False)['close'].mean()
-            .sort_values('date')
+        daily_avg_close = market_summary[['date', 'average_close']].rename(
+            columns={'average_close': 'close'}
         )
         fig_close = go.Figure()
         fig_close.add_trace(go.Scatter(x=daily_avg_close['date'], y=daily_avg_close['close'], name='全市场平均收盘价', line=dict(color=colors['accent'], width=2.5), mode='lines', fill='tozeroy', fillcolor='rgba(18, 110, 130, 0.08)'))
         fig_close.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='💰 全市场平均收盘价走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='平均收盘价 (元)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
         st.plotly_chart(fig_close, width='stretch', config={'displayModeBar': False})
     with st_card():
-        monthly_volume = pd.DataFrame(
-            {'year_month': factor_dates.dt.to_period('M'), 'volume': df_factors['volume']}
-        ).groupby('year_month', as_index=False)['volume'].sum()
+        monthly_volume = pd.DataFrame({
+            'year_month': market_summary['date'].dt.to_period('M'),
+            'volume': market_summary['total_volume'],
+        }).groupby('year_month', as_index=False)['volume'].sum()
         monthly_volume['year_month_str'] = monthly_volume['year_month'].astype(str)
-        three_years_ago = pd.Timestamp.now() - pd.DateOffset(years=3)
+        three_years_ago = market_summary['date'].max() - pd.DateOffset(years=3)
         cutoff_period = pd.Period(three_years_ago, freq='M')
         monthly_volume_recent = monthly_volume[monthly_volume['year_month'] >= cutoff_period]
         fig_vol = go.Figure()
         fig_vol.add_trace(go.Bar(x=monthly_volume_recent['year_month_str'], y=monthly_volume_recent['volume'], name='月度总成交量', marker=dict(color=monthly_volume_recent['volume'], colorscale='Blues', opacity=0.85, line=dict(color='rgba(0,0,0,0)', width=0.5))))
         fig_vol.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 每月总成交量（近3年）', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=10, color=colors['font_color']), tickangle=-45), yaxis=dict(title=dict(text='总成交量', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
         st.plotly_chart(fig_vol, width='stretch', config={'displayModeBar': False})
-    if df_sentiment is not None and 'sentiment' in df_sentiment.columns:
+    if 'average_sentiment' in market_summary.columns and market_summary['average_sentiment'].notna().any():
         with st_card():
-            df_s = df_sentiment.copy()
-            df_s['date'] = pd.to_datetime(df_s['date'])
-            daily_sentiment = df_s.groupby('date')['sentiment'].mean().reset_index()
+            daily_sentiment = market_summary[['date', 'average_sentiment']].rename(
+                columns={'average_sentiment': 'sentiment'}
+            )
             fig_sent = go.Figure()
             fig_sent.add_trace(go.Scatter(x=daily_sentiment['date'], y=daily_sentiment['sentiment'], name='全市场平均情绪', line=dict(color=colors['accent'], width=2), mode='lines', fill='tozeroy'))
             fig_sent.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
@@ -827,21 +658,22 @@ def show_data_insight():
 
 def show_factor_analysis():
     st.markdown("<div class='main-title'>📊 因子分析</div>", unsafe_allow_html=True)
-    df_factors, _, _ = load_data()
+    stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    if df_factors is None:
+    if stock_catalog.empty:
         st.warning("⚠️ 请先生成数据")
         return
-    stock_codes = sorted(df_factors['code'].unique())
+    stock_codes = stock_catalog['code'].tolist()
     watchlist = st.session_state.get('watchlist', [])
     priority_codes = [c for c in watchlist if c in stock_codes]
     other_codes = [c for c in stock_codes if c not in watchlist]
     display_codes = priority_codes + other_codes
     selected_code = st.selectbox("选择股票", display_codes, key='factor_stock_select')
-    df_stock = df_factors[df_factors['code'] == selected_code].copy()
-    df_stock['date'] = pd.to_datetime(df_stock['date'])
-    df_stock = df_stock.sort_values('date')
+    df_stock = get_stock_history(selected_code)
+    if df_stock.empty:
+        st.warning("⚠️ 此股票暂无可用因子明细")
+        return
     with st_card():
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['close'], name='收盘价', line=dict(color=colors['accent'], width=2.5)))
@@ -882,49 +714,42 @@ def show_factor_analysis():
         else:
             st.info("⚠️ 因子数据不足，无法绘制热力图")
     st.markdown("<div class='section-title'>📐 因子IC实时分析</div>", unsafe_allow_html=True)
-    all_factor_names = [
-        column for column in ANALYTIC_FACTOR_COLUMNS
-        if column in df_factors.columns and pd.api.types.is_numeric_dtype(df_factors[column])
-    ]
+    factor_ic_catalog = get_factor_catalog()
+    all_factor_names = (
+        sorted(factor_ic_catalog['factor_name'].unique())
+        if not factor_ic_catalog.empty else []
+    )
     if all_factor_names:
         selected_ic_factors = st.multiselect("选择因子（1~5个）", all_factor_names, max_selections=5, key='ic_factor_select')
         if selected_ic_factors:
-            df_factors_temp = df_factors.copy()
-            df_factors_temp['date'] = pd.to_datetime(df_factors_temp['date'])
-            min_date = df_factors_temp['date'].min().date()
-            max_date = df_factors_temp['date'].max().date()
+            min_date = factor_ic_catalog['date'].min().date()
+            max_date = factor_ic_catalog['date'].max().date()
             default_start = (max_date - timedelta(days=365)) if (max_date - timedelta(days=365)) >= min_date else min_date
             date_range = st.slider("选择分析日期区间", min_value=min_date, max_value=max_date, value=(default_start, max_date), key='ic_date_range')
-            if 'label' in df_factors_temp.columns:
-                df_ic = df_factors_temp[(df_factors_temp['date'].dt.date >= date_range[0]) & (df_factors_temp['date'].dt.date <= date_range[1])]
-                ic_results = {}
-                for factor_name in selected_ic_factors:
-                    try:
-                        daily_ics = []
-                        for date, group in df_ic.groupby('date'):
-                            if factor_name in group.columns and 'label' in group.columns:
-                                valid = group[[factor_name, 'label']].dropna()
-                                if len(valid) > 10:
-                                    corr, _ = spearmanr(valid[factor_name], valid['label'])
-                                    daily_ics.append({'date': date, 'IC': corr})
-                        if daily_ics:
-                            ic_results[factor_name] = pd.DataFrame(daily_ics)
-                    except Exception:
-                        pass
-                if ic_results:
-                    color_palette = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
-                    for idx, (factor_name, ic_df) in enumerate(ic_results.items()):
-                        fig_ic = go.Figure()
-                        fig_ic.add_trace(go.Scatter(x=ic_df['date'], y=ic_df['IC'], name=f'{factor_name} IC', line=dict(color=color_palette[idx % len(color_palette)], width=2), mode='lines'))
-                        fig_ic.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
-                        ic_mean = ic_df['IC'].mean()
-                        ic_std = ic_df['IC'].std()
-                        fig_ic.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=f'📈 {factor_name} IC序列 (均值={ic_mean:.4f}, 标准差={ic_std:.4f})', font=dict(size=16, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(title=dict(text='IC', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color']))
-                        st.plotly_chart(fig_ic, width='stretch', config={'displayModeBar': False})
-                    ic_data = {name: df['IC'].describe().to_dict() for name, df in ic_results.items()}
-                    st.dataframe(pd.DataFrame(ic_data).round(4))
+            queried_ic = get_factor_ic(
+                selected_ic_factors,
+                start_date=date_range[0],
+                end_date=date_range[1],
+            )
+            ic_results = {
+                factor_name: group.rename(columns={'ic': 'IC'})
+                for factor_name, group in queried_ic.groupby('factor_name')
+                if group['ic'].notna().any()
+            }
+            if ic_results:
+                color_palette = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
+                for idx, (factor_name, ic_df) in enumerate(ic_results.items()):
+                    fig_ic = go.Figure()
+                    fig_ic.add_trace(go.Scatter(x=ic_df['date'], y=ic_df['IC'], name=f'{factor_name} IC', line=dict(color=color_palette[idx % len(color_palette)], width=2), mode='lines'))
+                    fig_ic.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
+                    ic_mean = ic_df['IC'].mean()
+                    ic_std = ic_df['IC'].std()
+                    fig_ic.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=f'📈 {factor_name} IC序列 (均值={ic_mean:.4f}, 标准差={ic_std:.4f})', font=dict(size=16, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(title=dict(text='IC', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color']))
+                    st.plotly_chart(fig_ic, width='stretch', config={'displayModeBar': False})
+                ic_data = {name: df['IC'].describe().to_dict() for name, df in ic_results.items()}
+                st.dataframe(pd.DataFrame(ic_data).round(4))
             else:
-                st.warning("⚠️ 数据中缺少 label 列，无法计算IC")
+                st.info("该日期范围暂无可用 IC 结果")
         else:
             st.info("👆 请选择至少1个因子以开始IC分析")
     else:
@@ -933,33 +758,19 @@ def show_factor_analysis():
 
 def show_sentiment_analysis():
     st.markdown("<div class='main-title'>💬 情绪因子分析</div>", unsafe_allow_html=True)
-    df_factors, df_sentiment, _ = load_data()
+    stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    sentiment_path = (
-        str(PORTFOLIO_SENTIMENT_PATH)
-        if PORTFOLIO_MODE
-        else _P('data', 'processed', 'sentiment_data.parquet')
-    )
-    if not os.path.exists(sentiment_path):
-        st.warning("⚠️ 情绪数据暂不可用")
-        if not PORTFOLIO_MODE:
-            st.info("💡 请先运行 `python fetch_sentiment.py --mode demo` 生成演示情绪数据")
-        return
-    if df_sentiment is None or 'code' not in df_sentiment.columns or 'date' not in df_sentiment.columns:
-        st.warning("⚠️ 数据格式不正确")
-        return
-    if len(df_sentiment) == 0:
+    if stock_catalog.empty:
         st.warning("⚠️ 没有可用的股票数据")
         return
-    stock_codes = sorted(df_sentiment['code'].unique())
+    stock_codes = stock_catalog['code'].tolist()
     watchlist = st.session_state.get('watchlist', [])
     priority_codes = [c for c in watchlist if c in stock_codes]
     other_codes = [c for c in stock_codes if c not in watchlist]
     display_codes = priority_codes + other_codes
     selected_code = st.selectbox("选择股票", display_codes, key='sentiment_select')
-    df_stock = df_sentiment[df_sentiment['code'] == selected_code].copy()
-    df_stock = df_stock.sort_values('date')
+    df_stock = get_stock_history(selected_code)
     if len(df_stock) == 0:
         st.warning("⚠️ 此股票没有情绪数据")
         return
@@ -1027,10 +838,10 @@ def show_sentiment_analysis():
     example_title = '情绪记录样例' if PORTFOLIO_MODE else '新闻示例分析'
     st.markdown(f"<div class='section-title'>📰 {example_title}</div>", unsafe_allow_html=True)
     try:
-        if df_sentiment is not None and len(df_sentiment) > 0:
-            news_cols = [c for c in df_sentiment.columns if 'news' in c.lower() or 'title' in c.lower() or 'content' in c.lower()]
+        if not df_stock.empty:
+            news_cols = [c for c in df_stock.columns if 'news' in c.lower() or 'title' in c.lower() or 'content' in c.lower()]
             if news_cols:
-                recent_news = df_sentiment.sort_values('date', ascending=False).head(10)
+                recent_news = df_stock.sort_values('date', ascending=False).head(10)
                 for _, row in recent_news.iterrows():
                     date_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])[:10]
                     sentiment_val = row.get('sentiment', 0)
@@ -1249,10 +1060,10 @@ def _predict_lstm(df_all, lstm_model_path, selected_code=None):
 
 def show_prediction():
     st.markdown("<div class='main-title'>🎯 股票预测</div>", unsafe_allow_html=True)
-    df_factors, _, _ = load_data()
+    stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    if df_factors is None:
+    if stock_catalog.empty:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先处理数据</div>", unsafe_allow_html=True)
         return
     training_log_path = (
@@ -1265,7 +1076,7 @@ def show_prediction():
             "现有模型文件缺少与当前数据快照对应的训练清单，属于历史产物。"
             "页面行情可以浏览，但模型指标与预测结果需重新训练后才可作为当前版本结论。"
         )
-    stock_codes = sorted(df_factors['code'].unique())
+    stock_codes = stock_catalog['code'].tolist()
     watchlist = st.session_state.get('watchlist', [])
     priority_codes = [c for c in watchlist if c in stock_codes]
     other_codes = [c for c in stock_codes if c not in watchlist]
@@ -1283,9 +1094,10 @@ def show_prediction():
                 portfolio_evaluation = json.load(file).get(selected_model)
         except (OSError, ValueError, TypeError):
             portfolio_evaluation = None
-    df_stock = df_factors[df_factors['code'] == selected_code].copy()
-    df_stock['date'] = pd.to_datetime(df_stock['date'])
-    df_stock = df_stock.sort_values('date').reset_index(drop=True)
+    df_stock = get_stock_history(selected_code)
+    if df_stock.empty:
+        st.warning("所选股票暂无可用行情明细。")
+        return
     if st.session_state.get('_pred_code') != selected_code or st.session_state.get('_pred_model') != selected_model:
         st.session_state.pop('_pred_result', None)
         st.session_state['_pred_code'] = selected_code
@@ -1308,11 +1120,11 @@ def show_prediction():
             with st.spinner("🔄 预测中，请稍候..."):
                 if selected_model == 'LSTM':
                     result = _predict_lstm(
-                        df_factors, lstm_model_path, selected_code=selected_code
+                        df_stock, lstm_model_path, selected_code=selected_code
                     )
                 else:
                     result = _predict_xgb(
-                        df_factors, xgb_model_path, selected_code=selected_code
+                        df_stock, xgb_model_path, selected_code=selected_code
                     )
                 st.session_state['_pred_result'] = result
             st.rerun()
@@ -1442,26 +1254,23 @@ def show_dashboard():
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
     st.markdown("<div class='dashboard-title'>🚀 股票量化数据大屏</div>", unsafe_allow_html=True)
-    df_factors, df_sentiment, _ = load_data()
-    if df_factors is None:
+    manifest = get_manifest()
+    asset_summary = get_asset_summary()
+    df_latest = get_market_snapshot(manifest.get('end_date'), limit=2000)
+    if not manifest or not asset_summary or df_latest.empty:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先加载数据</div>", unsafe_allow_html=True)
         return
-    source_label = df_factors.attrs.get('source_label', '本地数据快照')
+    source_label = manifest.get('source_label', 'SQLite 服务层')
     st.markdown(
         f"<p style='text-align:center;color:{colors['secondary_text']};font-size:14px;margin-top:-20px;'>"
         f"数据来源：{source_label}｜批处理快照，非实时行情</p>",
         unsafe_allow_html=True,
     )
-    dashboard_snapshot = load_dashboard_snapshot()
-    if dashboard_snapshot is None:
-        st.warning("市场总览快照暂不可用。")
-        return
-    latest_date = dashboard_snapshot['latest_date']
-    df_latest = dashboard_snapshot['latest_frame']
-    stock_count = dashboard_snapshot['stock_count']
-    total_records = dashboard_snapshot['record_count']
-    start_date = dashboard_snapshot['start_date'].strftime('%Y-%m-%d')
-    end_date = latest_date.strftime('%Y-%m-%d')
+    latest_date = pd.Timestamp(manifest['end_date'])
+    stock_count = asset_summary['detail_stock_count']
+    total_records = asset_summary['record_count']
+    start_date = str(manifest['start_date'])
+    end_date = str(manifest['end_date'])
     avg_close = df_latest['close'].mean() if len(df_latest) > 0 else 0
     avg_volume = df_latest['volume'].mean() if len(df_latest) > 0 else 0
     up_count = 0
@@ -1526,7 +1335,7 @@ def show_dashboard():
         available_cols = [c for c in display_cols if c in df_latest.columns]
         df_display = df_latest[available_cols].copy()
         df_display['涨跌幅'] = ((df_display['close'] - df_display['open']) / df_display['open'] * 100).round(2)
-        df_display['板块'] = df_display['code'].apply(classify_board)
+        df_display['板块'] = df_latest['board'].values
         if 'volume' in df_display.columns:
             df_display['成交量(万手)'] = (df_display['volume'] / 10000).round(2)
             df_display = df_display.drop(columns=['volume'])
@@ -1599,7 +1408,11 @@ def show_dashboard():
     st.markdown("<div class='section-title'>📊 板块成交额分布</div>", unsafe_allow_html=True)
     if len(df_latest) > 0:
         with st_card():
-            board_amount = dashboard_snapshot['board_amount'].copy()
+            board_amount = (
+                df_latest.groupby('board', as_index=False)['amount'].sum()
+                .rename(columns={'board': '板块'})
+                .sort_values('amount', ascending=False)
+            )
             if board_amount is not None and len(board_amount) > 0:
                 amount_col = 'amount'
                 total_amount = board_amount[amount_col].sum()
@@ -1649,7 +1462,7 @@ def show_dashboard():
             fig_board.update_layout(
                 height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'],
                 font=dict(color=colors['font_color']),
-                title=dict(text='🏛️ 板块成交额分布（全量数据）', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
+                title=dict(text='🏛️ 板块成交额分布（最新交易日）', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
                 margin=dict(l=40, r=20, t=60, b=20),
                 legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1)
             )
@@ -1887,20 +1700,65 @@ def show_data_platform():
     """面向数据开发岗位的数据资产、质量和血缘监控首页。"""
     st.markdown("<div class='main-title'>量化数据平台</div>", unsafe_allow_html=True)
     st.caption("Market Data Lakehouse · 数据质量、存储服务与任务产物统一监控")
-    df_factors, _, _ = load_data()
-    if df_factors is None or df_factors.empty:
+    manifest = get_manifest()
+    asset_summary = get_asset_summary()
+    quality_runs = get_quality_runs(limit=1)
+    quality_issues = get_quality_issues()
+    if not manifest or not asset_summary or quality_runs.empty:
         st.warning(
-            "尚未发现可用因子数据。运行 `python scripts/prepare_demo.py` 可生成明确标记的 Demo 数据并完成全链路入库。"
+            "尚未发现可用服务库。运行 `python scripts/build_demo_serving_db.py` 可重建公开 SQLite 服务层。"
         )
         return
-
-    report, missing_cell_count = load_platform_quality_summary()
-    if report is None:
-        st.warning("数据质量摘要暂不可用。")
-        return
-    latest_date = pd.to_datetime(report['end_date'])
+    quality_row = quality_runs.iloc[0]
+    structural_factor_count = int(
+        quality_issues.loc[
+            quality_issues['category'] == 'structural_factor', 'issue_count'
+        ].sum()
+    ) if not quality_issues.empty else 0
+    structural_label_count = int(
+        quality_issues.loc[
+            quality_issues['category'] == 'structural_label', 'issue_count'
+        ].sum()
+    ) if not quality_issues.empty else 0
+    issue_counts = (
+        quality_issues.groupby('rule_name')['issue_count'].sum().to_dict()
+        if not quality_issues.empty else {}
+    )
+    unexpected_missing_count = int(quality_row['unexpected_missing_count'])
+    missing_cell_count = structural_factor_count + structural_label_count + unexpected_missing_count
+    missing_details = {
+        str(row['column_name']): {
+            'count': int(row['issue_count']),
+            'rate': int(row['issue_count']) / max(int(quality_row['row_count']), 1),
+            'category': row['category'],
+            'reason': row['message'],
+        }
+        for _, row in quality_issues[quality_issues['rule_name'] == 'missing_value'].iterrows()
+    }
+    report = {
+        'row_count': int(asset_summary['record_count']),
+        'stock_count': int(asset_summary['detail_stock_count']),
+        'column_count': int(asset_summary['column_count']),
+        'start_date': str(manifest['start_date']),
+        'end_date': str(manifest['end_date']),
+        'duplicate_key_count': int(quality_row['duplicate_key_count']),
+        'invalid_date_count': int(quality_row['invalid_date_count']),
+        'invalid_ohlc_count': int(quality_row['invalid_ohlc_count']),
+        'raw_missing_cell_count': 0,
+        'structural_factor_missing_count': structural_factor_count,
+        'structural_label_missing_count': structural_label_count,
+        'unexpected_missing_cell_count': unexpected_missing_count,
+        'missing_details': missing_details,
+        'quality_status': str(quality_row['status']),
+        'sentiment_source_distribution': {'synthetic_demo': int(asset_summary['record_count'])},
+        'nonpositive_price_count': int(issue_counts.get('nonpositive_price', 0)),
+        'negative_volume_count': int(issue_counts.get('negative_volume', 0)),
+        'zero_volume_count': int(issue_counts.get('zero_volume', 0)),
+        'extreme_return_count': int(issue_counts.get('extreme_return', 0)),
+    }
+    latest_date = pd.to_datetime(manifest['end_date'])
     freshness_days = max((pd.Timestamp.now().normalize() - latest_date).days, 0)
-    source_label = df_factors.attrs.get('source_label', '本地数据快照')
+    source_label = manifest.get('source_label', 'SQLite 服务层')
     if freshness_days > 7:
         st.warning(
             f"当前数据水位为 {report['end_date']}，距今天 {freshness_days} 天；"
@@ -1925,22 +1783,12 @@ def show_data_platform():
             )
 
     st.markdown("<div class='section-title'>数据血缘与任务状态</div>", unsafe_allow_html=True)
-    if PORTFOLIO_MODE:
-        stage_status = [
-            ("SOURCE", report['stock_count'], "确定性合成股票"),
-            ("FEATURE", report['row_count'], "因子展示样本"),
-            ("QUALITY", 1, f"质量状态 {report.get('quality_status', 'N/A')}"),
-            ("SERVING", report['row_count'], "Parquet 只读服务"),
-        ]
-    else:
-        raw_dir = _P('data', 'raw')
-        clean_dir = _P('data', 'clean')
-        stage_status = [
-            ("RAW", len(glob.glob(os.path.join(raw_dir, '*_daily.csv'))), "原始行情"),
-            ("CLEAN", len(glob.glob(os.path.join(clean_dir, '*_daily.csv'))), "质量校验"),
-            ("FEATURE", report['row_count'], "因子加工"),
-            ("SQLITE", report['row_count'] if os.path.exists(_P('data', 'stock_data.db')) else 0, "服务层"),
-        ]
+    stage_status = [
+        ("SOURCE", report['stock_count'], "确定性合成股票"),
+        ("FEATURE", report['row_count'], "公开因子明细"),
+        ("QUALITY", len(quality_runs), f"质量状态 {report.get('quality_status', 'N/A')}"),
+        ("SERVING", report['row_count'], "SQLite 按需查询"),
+    ]
     stage_columns = st.columns(4)
     for index, (stage, count, description) in enumerate(stage_status):
         with stage_columns[index]:
@@ -2020,11 +1868,7 @@ def show_data_platform():
         st.write(f"覆盖区间：{report['start_date']} → {report['end_date']}")
         st.write(f"字段数量：{report['column_count']}")
         st.write(f"情绪来源：{source_distribution or {'not_available': report['row_count']}}")
-        storage_label = (
-            "压缩 Parquet 只读展示层"
-            if PORTFOLIO_MODE
-            else "CSV/Parquet 加工层 + SQLite 参数化服务层"
-        )
+        storage_label = "SQLite Serving Layer + 参数化按需查询"
         st.write(f"存储策略：{storage_label}")
         status = report.get('quality_status', 'N/A')
         st.write(f"质量结论：{status}（结构性缺失记为提示，不记为原始数据失败）")
@@ -2064,6 +1908,17 @@ def main():
 
     apply_theme()
 
+    try:
+        serving_manifest = get_manifest()
+        stock_catalog = get_stock_catalog(has_detail=True)
+    except (FileNotFoundError, sqlite3.Error, ValueError) as exc:
+        st.error(f"SQLite 服务层不可用：{exc}")
+        st.info("请在项目目录运行 `python scripts/build_demo_serving_db.py` 后重试。")
+        return
+    if not serving_manifest or stock_catalog.empty:
+        st.error("SQLite 服务层没有可展示的数据。")
+        return
+
     st.sidebar.title("Quant Data Platform")
     st.sidebar.caption("量化数据开发与研究工作台")
     if PORTFOLIO_MODE:
@@ -2080,9 +1935,8 @@ def main():
     page = st.sidebar.radio("页面导航", page_labels, index=0, label_visibility='collapsed', key='main_page')
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ⭐ 自选股管理")
-    df_factors, _, _ = load_data()
-    if df_factors is not None:
-        all_codes = sorted(df_factors['code'].unique())
+    if not stock_catalog.empty:
+        all_codes = stock_catalog['code'].tolist()
         current_watchlist = st.session_state.get('watchlist', [])
         valid_watchlist = [c for c in current_watchlist if c in all_codes]
         selected_watchlist = st.sidebar.multiselect("选择自选股", all_codes, default=valid_watchlist, key='watchlist_select')
@@ -2097,11 +1951,9 @@ def main():
             st.sidebar.success("自选股已保存！")
             st.session_state.watchlist_saved = False
         saved_wl = st.session_state.get('watchlist', [])
-        if saved_wl and df_factors is not None:
+        if saved_wl:
             st.sidebar.markdown("#### 📋 自选股行情")
-            factor_dates = pd.to_datetime(df_factors['date'])
-            latest_date = factor_dates.max()
-            df_latest = df_factors[factor_dates == latest_date]
+            df_latest = get_latest_quotes(saved_wl)
             for code in saved_wl:
                 row = df_latest[df_latest['code'] == code]
                 if len(row) > 0:

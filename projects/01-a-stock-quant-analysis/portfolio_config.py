@@ -6,6 +6,7 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
 PORTFOLIO_DATA_DIR = PROJECT_DIR / "portfolio_data"
+DEMO_SERVING_DB_PATH = PORTFOLIO_DATA_DIR / "demo_serving.db"
 PORTFOLIO_FACTORS_PATH = PORTFOLIO_DATA_DIR / "portfolio_factors.parquet"
 PORTFOLIO_SENTIMENT_PATH = PORTFOLIO_DATA_DIR / "portfolio_sentiment.parquet"
 PORTFOLIO_MANIFEST_PATH = PORTFOLIO_DATA_DIR / "portfolio_manifest.json"

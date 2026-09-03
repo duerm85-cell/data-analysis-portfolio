@@ -4,7 +4,7 @@
 ![PySpark](https://img.shields.io/badge/PySpark-optional-E25A1C?logo=apachespark&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-serving-003B57?logo=sqlite&logoColor=white)
 
-这是一个从本科毕设演进而来的、可复现的量化数据开发项目。它覆盖行情采集、数据清洗、质量校验、因子加工、SQLite 服务层、机器学习、T+1 回测和 Streamlit 数据平台。原始数据、模型和结果均由流水线生成，不再提交大文件到 Git。
+这是一个从本科毕设演进而来的、可复现的量化数据开发项目。它覆盖行情采集、数据清洗、质量校验、因子加工、SQLite 服务层、机器学习、T+1 回测和 Streamlit 数据平台。公开 Demo 提交可直接查询的轻量 SQLite 服务库；完整原始数据、研究数据库、模型权重和敏感凭证不进入 Git。
 
 项目重点不是展示一条“漂亮收益曲线”，而是展示一套可信的数据链路：明确数据来源、隔离训练/验证/测试集、使用真实基准或诚实标注降级基准、计入交易费用，并通过测试和 CI 防止回归。
 
@@ -25,7 +25,7 @@ python -m streamlit run app_pro.py
 
 ## 在线作品集部署
 
-仓库包含一个使用固定随机种子生成的轻量演示数据包：50 只模拟股票、最近 3 年数据。它不复制或再分发 Tushare/AKShare 的逐日行情。完整真实数据库、原始行情、用户库和凭证仍不会提交到 Git。
+仓库包含一个使用固定随机种子生成的轻量演示数据包：50 只模拟股票、最近 3 年数据。它不复制或再分发 Tushare/AKShare 的逐日行情。离线 Parquet 只作为建库输入，线上 Streamlit 只读 `portfolio_data/demo_serving.db`，按页面查询 SQLite，不再启动时加载整张因子宽表。完整真实数据库、原始行情、用户库和凭证仍不会提交到 Git。
 
 克隆仓库后，如果本地没有完整研究数据，应用会自动进入公开作品集模式：
 
@@ -56,6 +56,8 @@ python -m streamlit run app_pro.py
 
 ```powershell
 python scripts/build_portfolio_dataset.py --stocks 50 --years 3
+python scripts/build_demo_serving_db.py
+python scripts/benchmark_queries.py
 ```
 
 ## 架构与数据血缘
@@ -67,7 +69,8 @@ flowchart LR
     B --> C[data/clean 标准层]
     C --> Q[质量规则与报告]
     Q --> D[data/processed 因子层]
-    D --> S[(SQLite 服务层)]
+    D --> B[离线预聚合与建库]
+    B --> S[(demo_serving.db 只读服务层)]
     D --> M[XGBoost / BiLSTM]
     M --> T[T+1 含成本回测]
     S --> V[Streamlit 数据平台]
@@ -80,7 +83,8 @@ flowchart LR
 | Raw / ODS | `data/raw/` | 保留逐股票贴源数据和基准数据，便于追溯 |
 | Clean / DWD | `data/clean/` | 字段统一、类型转换、去重、异常过滤 |
 | Processed / DWS | `data/processed/` | 技术/情绪因子宽表与模型标签 |
-| Serving / ADS | `data/stock_data.db` | 唯一键约束、分块 upsert、参数化查询，供看板消费 |
+| Serving / ADS（本地研究） | `data/stock_data.db` | 完整真实研究数据的约束、upsert 与参数化查询 |
+| Serving / ADS（公开 Demo） | `portfolio_data/demo_serving.db` | 维表、明细表、市场/行业/IC 预聚合、质量与任务记录，供网页按需查询 |
 
 ## 工程能力
 
@@ -109,6 +113,7 @@ Streamlit 首页改造成紧凑的专业数据平台，集中展示数据层状�
 ```text
 01-a-stock-quant-analysis/
 ├── app_pro.py                            # Streamlit 数据平台
+├── app/data_access.py                    # 缓存、参数化、只读 SQLite 查询接口
 ├── fetch_stock_data.py                   # 行情与 HS300 基准采集
 ├── fetch_sentiment.py                    # 真实/演示情绪采集（显式模式）
 ├── data_preprocessing.py                 # Raw → Clean
@@ -119,9 +124,12 @@ Streamlit 首页改造成紧凑的专业数据平台，集中展示数据层状�
 ├── model_training.py                     # XGBoost / BiLSTM 时间序列训练
 ├── backtest.py                           # T+1、成本与真实基准回测
 ├── scripts/prepare_demo.py               # 一键可复现 Demo
+├── scripts/build_demo_serving_db.py       # 可重复、原子构建公开 SQLite 服务库
+├── scripts/benchmark_queries.py           # 五类核心查询基准测试
 ├── scripts/update_market_data_akshare.py  # 无 Token 增量更新与跨源校验
 ├── scripts/rebuild_serving_database.py   # 校验、备份并原子重建 SQLite
 ├── scripts/smoke_test_app.py             # 逐页 Streamlit 冒烟测试
+├── sql/demo_serving_schema.sql            # 公开服务库表结构与索引
 ├── sql/analytics_queries.sql             # 分析 SQL
 ├── tests/                                # 单元与端到端测试
 ├── requirements.txt                      # 公开网站最小运行依赖
@@ -181,12 +189,13 @@ python spark_pipeline.py
 ```bash
 python -m unittest discover -s tests -v
 python -m compileall -q -x "archive" .
+python scripts/benchmark_queries.py
 python scripts/smoke_test_app.py
 ```
 
 可在 Python 3.10 和 3.11 环境执行相同检查。演示数据、数据库、模型、日志和回测产物均被 `.gitignore` 排除。
 
-如果历史 SQLite 缺少行情字段，可运行 `python scripts/rebuild_serving_database.py`。脚本会先备份旧库，校验新库的字段与行数，再原子替换服务层；页面也会在 SQLite 不完整时自动回退到 Processed Parquet。
+公开服务库可运行 `python scripts/build_demo_serving_db.py` 重建。脚本先在临时文件中建表、导入、建索引、执行 `ANALYZE` 和完整性校验，再原子替换 `demo_serving.db`；页面不会回退到整表 Parquet，以免线上再次出现全表加载。
 
 ## 关于实验结果
 

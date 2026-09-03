@@ -1,0 +1,98 @@
+{
+  "generated_at": "2026-09-03T05:41:24.128298+00:00",
+  "database": "D:\\2025大三下\\spark\\pythonProject2bishe\\projects\\01-a-stock-quant-analysis\\portfolio_data\\demo_serving.db",
+  "database_size_bytes": 23851008,
+  "data_version": "v2-107886329a68f35fdcda",
+  "repeats": 7,
+  "results": [
+    {
+      "name": "stock_catalog",
+      "sql": "SELECT code, name, market, board, industry_l1, has_detail FROM dim_stock WHERE has_detail = ? ORDER BY code LIMIT ?",
+      "parameters": [
+        1,
+        10000
+      ],
+      "returned_rows": 50,
+      "repeats": 7,
+      "first_run_ms": 0.9261,
+      "median_ms": 1.136,
+      "min_ms": 0.9261,
+      "max_ms": 1.5646,
+      "query_plan": [
+        "SEARCH dim_stock USING INDEX idx_stock_has_detail (has_detail=?)"
+      ]
+    },
+    {
+      "name": "stock_latest_252",
+      "sql": "SELECT code, date, open, high, low, close, volume, amount, ret, ma5, ma20, rsi, macd, volatility_20d, sentiment FROM fact_stock_daily_demo WHERE code = ? ORDER BY date DESC LIMIT ?",
+      "parameters": [
+        "000001",
+        252
+      ],
+      "returned_rows": 252,
+      "repeats": 7,
+      "first_run_ms": 4.6036,
+      "median_ms": 2.9885,
+      "min_ms": 2.4512,
+      "max_ms": 4.6036,
+      "query_plan": [
+        "SEARCH fact_stock_daily_demo USING PRIMARY KEY (code=?)"
+      ]
+    },
+    {
+      "name": "stock_three_years",
+      "sql": "SELECT code, date, open, high, low, close, volume, amount, ret, ma5, ma20, rsi, macd, volatility_20d, sentiment FROM fact_stock_daily_demo WHERE code = ? AND date BETWEEN ? AND ? ORDER BY date",
+      "parameters": [
+        "000001",
+        "2023-10-06",
+        "2026-08-28"
+      ],
+      "returned_rows": 756,
+      "repeats": 7,
+      "first_run_ms": 8.0554,
+      "median_ms": 8.0554,
+      "min_ms": 6.5701,
+      "max_ms": 10.7757,
+      "query_plan": [
+        "SEARCH fact_stock_daily_demo USING PRIMARY KEY (code=? AND date>? AND date<?)"
+      ]
+    },
+    {
+      "name": "market_snapshot",
+      "sql": "SELECT d.code, d.name, d.board, d.industry_l1, f.close, f.pct_chg, f.volume, f.amount, f.sentiment FROM fact_stock_daily_demo AS f JOIN dim_stock AS d ON d.code = f.code WHERE f.date = ? ORDER BY f.amount DESC, f.code LIMIT ?",
+      "parameters": [
+        "2026-08-28",
+        10000
+      ],
+      "returned_rows": 50,
+      "repeats": 7,
+      "first_run_ms": 3.7162,
+      "median_ms": 2.4992,
+      "min_ms": 1.4332,
+      "max_ms": 3.7162,
+      "query_plan": [
+        "SEARCH f USING INDEX idx_stock_daily_date (date=?)",
+        "SEARCH d USING PRIMARY KEY (code=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "name": "industry_trend",
+      "sql": "SELECT industry_l1, date, stock_count, average_close, average_return, median_return, total_volume, total_amount, advancing_ratio, average_sentiment FROM fact_industry_daily WHERE industry_l1 = ? AND date BETWEEN ? AND ? ORDER BY date",
+      "parameters": [
+        "银行",
+        "2023-10-06",
+        "2026-08-28"
+      ],
+      "returned_rows": 756,
+      "repeats": 7,
+      "first_run_ms": 6.9284,
+      "median_ms": 5.117,
+      "min_ms": 4.7453,
+      "max_ms": 6.9284,
+      "query_plan": [
+        "SEARCH fact_industry_daily USING PRIMARY KEY (industry_l1=? AND date>? AND date<?)"
+      ]
+    }
+  ]
+}
