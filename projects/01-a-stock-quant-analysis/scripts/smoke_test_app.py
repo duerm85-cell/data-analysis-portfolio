@@ -8,9 +8,10 @@ import time
 from streamlit.testing.v1 import AppTest
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = PROJECT_DIR.parents[1]
 APP_TIMEOUT_SECONDS = int(os.getenv('STREAMLIT_SMOKE_TIMEOUT', '90'))
-os.chdir(PROJECT_DIR)
-sys.path.insert(0, str(PROJECT_DIR))
+# 模拟 Streamlit Cloud 从 Git 仓库根目录启动嵌套入口文件。
+os.chdir(REPOSITORY_ROOT)
 
 
 def main():

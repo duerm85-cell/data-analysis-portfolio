@@ -1,5 +1,13 @@
 import os
 import sys
+
+# Streamlit Cloud 从仓库根目录启动嵌套入口文件。先将本项目目录
+# 放到模块搜索路径最前，避免误导入环境中的同名 app/portfolio_config 包。
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR in sys.path:
+    sys.path.remove(BASE_DIR)
+sys.path.insert(0, BASE_DIR)
+
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -39,7 +47,6 @@ import contextlib
 warnings.filterwarnings('ignore')
 
 # ========== 路径基准：全部以 app_pro.py 所在目录为根，不依赖 cwd ==========
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 def _P(*parts):
     """将相对路径拼到 BASE_DIR 下，避免受命令行起始目录影响"""
     return os.path.join(BASE_DIR, *parts)
