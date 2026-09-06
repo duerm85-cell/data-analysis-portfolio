@@ -190,10 +190,10 @@ python spark_pipeline.py
 ## 验证
 
 ```bash
-python -m unittest discover -s tests -v
-python -m compileall -q -x "archive" .
+python -m pytest -q
+python -m compileall -q -x "archive([\\/]|$)" .
 python scripts/benchmark_queries.py
-python scripts/smoke_test_app.py
+QUANT_APP_MODE=portfolio python scripts/smoke_test_app.py
 ```
 
 可在 Python 3.10 和 3.11 环境执行相同检查。用于在线演示的公开数据包和服务库随代码提交；完整真实数据、模型权重、日志和未脱敏回测产物由 `.gitignore` 排除。

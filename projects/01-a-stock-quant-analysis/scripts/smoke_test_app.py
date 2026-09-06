@@ -10,6 +10,18 @@ from streamlit.testing.v1 import AppTest
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = PROJECT_DIR.parents[1]
 APP_TIMEOUT_SECONDS = int(os.getenv('STREAMLIT_SMOKE_TIMEOUT', '90'))
+EXPECTED_PAGES = (
+    '数据平台',
+    '市场总览',
+    '股票画像',
+    '行业分析',
+    '系统概览',
+    '数据洞察',
+    '因子研究',
+    '情绪分析',
+    '模型预测',
+    '策略回测',
+)
 # 模拟 Streamlit Cloud 从 Git 仓库根目录启动嵌套入口文件。
 os.chdir(REPOSITORY_ROOT)
 
@@ -17,13 +29,29 @@ os.chdir(REPOSITORY_ROOT)
 def main():
     failures = []
     portfolio_mode = os.getenv('QUANT_APP_MODE', '').strip().lower() == 'portfolio'
-    first = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=APP_TIMEOUT_SECONDS)
-    page_count = len(first.radio[0].options)
+    if not portfolio_mode:
+        raise SystemExit('请设置 QUANT_APP_MODE=portfolio 后运行公开模式冒烟测试。')
 
-    for index in range(page_count):
+    first = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=APP_TIMEOUT_SECONDS)
+    failures.extend(f"应用入口: {exception.value}" for exception in first.exception)
+    if not first.radio:
+        failures.append('应用入口未渲染页面导航单选框')
+        page_options = []
+    else:
+        page_options = list(first.radio[0].options)
+        if page_options != list(EXPECTED_PAGES):
+            failures.append(
+                f'页面入口不符合预期：期望 {list(EXPECTED_PAGES)}，实际 {page_options}'
+            )
+
+    if failures:
+        print('\n'.join(failures), file=sys.stderr)
+        raise SystemExit(1)
+
+    page_count = len(EXPECTED_PAGES)
+    for index, page_name in enumerate(EXPECTED_PAGES):
         started_at = time.perf_counter()
         app = AppTest.from_file(str(PROJECT_DIR / 'app_pro.py')).run(timeout=APP_TIMEOUT_SECONDS)
-        page_name = app.radio[0].options[index]
         app.radio[0].set_value(page_name).run(timeout=APP_TIMEOUT_SECONDS)
         errors = [exception.value for exception in app.exception]
         if portfolio_mode and page_name == '情绪分析':
@@ -54,7 +82,7 @@ def main():
     if failures:
         print('\n'.join(failures), file=sys.stderr)
         raise SystemExit(1)
-    print('All Streamlit pages passed the smoke test.')
+    print(f'All {page_count} Streamlit pages passed the public-mode smoke test.')
 
 
 if __name__ == '__main__':

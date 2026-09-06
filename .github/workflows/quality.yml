@@ -21,10 +21,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: projects/01-a-stock-quant-analysis/requirements.txt
+          cache-dependency-path: |
+            projects/01-a-stock-quant-analysis/requirements.txt
+            projects/01-a-stock-quant-analysis/requirements-test.txt
       - name: Install test dependencies
-        run: python -m pip install pandas==2.1.4 numpy==1.26.4
+        run: python -m pip install -r requirements-test.txt
       - name: Compile Python sources
-        run: python -m compileall -q -x '(^|/)archive(/|$)' .
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+        run: python -m compileall -q -x 'archive([\\/]|$)' .
+      - name: Collect tests
+        run: python -m pytest --collect-only -q
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Smoke test public Streamlit pages
+        env:
+          QUANT_APP_MODE: portfolio
+        run: python scripts/smoke_test_app.py
