@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 # Streamlit Cloud 从仓库根目录启动嵌套入口文件。先将本项目目录
 # 放到模块搜索路径最前，避免误导入环境中的同名 app/portfolio_config 包。
@@ -330,6 +331,27 @@ PRO_LIGHT_CSS = """<style>
     .stButton button { background: #126E82 !important; border: 1px solid #126E82 !important; border-radius: 8px !important; box-shadow: none !important; font-size: 14px !important; padding: 9px 16px !important; }
     .stButton button:hover { background: #0E5C6D !important; transform: none !important; box-shadow: none !important; }
     .custom-info-box { background: #FFFFFF !important; border: 1px solid #DDE5EE !important; border-radius: 10px !important; }
+    .stApp { background: #F3F6FA !important; background-image: none !important; }
+    .main .block-container { max-width: 1280px !important; padding-top: 2rem !important; padding-bottom: 3rem !important; }
+    .main-title, .dashboard-title { background-image: none !important; animation: none !important; }
+    .dashboard-metric, .metric-card, .card, .stCard { background-image: none !important; }
+    .page-eyebrow { color: #168A9A; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+    .page-lead { color: #5D6B7A; font-size: 15px; line-height: 1.65; margin: -8px 0 22px; max-width: 920px; }
+    .section-note { color: #6D7E91; font-size: 13px; line-height: 1.6; margin: -4px 0 12px; }
+    .interpretation-box { background: #F8FBFC; border: 1px solid #CFE3E7; border-left: 3px solid #168A9A; border-radius: 8px; color: #243448; padding: 13px 16px; line-height: 1.65; margin: 12px 0 18px; }
+    .sidebar-group { color: #168A9A; font-size: 11px; font-weight: 750; letter-spacing: .12em; margin: 16px 0 4px; }
+    [data-testid="stSidebar"] hr { margin: 10px 0 !important; border-color: #DDE5EE !important; }
+    [data-testid="stExpander"] { background: #FFFFFF !important; border: 1px solid #DDE5EE !important; border-radius: 9px !important; margin: 10px 0 !important; }
+    [data-testid="stExpander"] summary { font-weight: 650 !important; color: #1A293D !important; }
+    [data-testid="stPlotlyChart"] { background: #FFFFFF !important; border: 1px solid #E3E9F0; border-radius: 9px; padding: 6px 8px 2px; }
+    .stButton button { transition: none !important; }
+    .dashboard-title { font-size: 30px !important; }
+    .stAlert, .stInfo, .stSuccess, .stError { background-image: none !important; border-radius: 8px !important; box-shadow: none !important; }
+    .stAlert { background: #FFF8E6 !important; border: 1px solid #E8C56A !important; }
+    .stInfo { background: #EEF7FA !important; border: 1px solid #B9DDE4 !important; }
+    .stSuccess { background: #EEF8F2 !important; border: 1px solid #B7DCC4 !important; }
+    .stError { background: #FFF1F1 !important; border: 1px solid #E2B5B5 !important; }
+    .stProgress > div > div { background: #168A9A !important; }
 </style>"""
 
 
@@ -348,6 +370,18 @@ def get_theme_colors(_theme=None):
         'accent': '#126E82', 'positive': '#D94B4B', 'negative': '#1F9D72',
         'secondary_text': '#6D7E91', 'muted_text': '#1F9D72', 'success': '#D6912A',
     }
+
+
+def render_page_header(title, description, eyebrow='QUANT DATA PLATFORM'):
+    """统一页面标题、定位和首屏说明，只负责展示。"""
+    st.markdown(f"<div class='page-eyebrow'>{eyebrow}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='main-title'>{title}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-lead'>{description}</div>", unsafe_allow_html=True)
+
+
+def render_interpretation(text):
+    """用简短客观文字解释已有指标，不引入新的研究结论。"""
+    st.markdown(f"<div class='interpretation-box'><strong>核心解读</strong><br>{text}</div>", unsafe_allow_html=True)
 
 
 def show_login_page():
@@ -457,15 +491,19 @@ def classify_board(code):
 
 def show_system_overview():
     theme = st.session_state.get('theme', 'dark')
-    st.markdown(f"<div class='main-title' style='text-align: center;'>A股量化数据工程平台</div>", unsafe_allow_html=True)
+    render_page_header('量化研究系统 · Pipeline Overview', '沿着数据、清洗、特征、模型、回测到 Dashboard 的链路查看运行状态。')
     asset_summary = get_asset_summary()
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
     if not asset_summary:
         st.warning("⚠️ 请先生成数据")
         return
+    st.markdown(
+        "<div class='section-note'>数据 → 数据质量 → 特征 → 模型 → 回测 → Dashboard</div>",
+        unsafe_allow_html=True,
+    )
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("<div class='section-title'>📊 数据统计</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>数据状态</div>", unsafe_allow_html=True)
         with st_card():
             st.markdown(f"""
                 <div style='margin: 15px 0;'>
@@ -477,8 +515,8 @@ def show_system_overview():
                     <div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{asset_summary['detail_stock_count']}</div>
                 </div>
                 """, unsafe_allow_html=True)
-    _log_xgb_acc, _log_xgb_auc, _log_xgb_mse = 0.5177, 0.5346, 0.249826
-    _log_lstm_acc, _log_lstm_auc, _log_lstm_mse = 0.5094, 0.5328, 0.249148
+    _log_xgb_acc = _log_xgb_auc = _log_xgb_mse = float('nan')
+    _log_lstm_acc = _log_lstm_auc = _log_lstm_mse = float('nan')
     _training_metrics_loaded = False
     _comparison_source = '内置历史参考值（请重新训练）'
     _training_log_path = (
@@ -498,20 +536,28 @@ def show_system_overview():
                 _log_lstm_acc = _tlog['LSTM'].get('accuracy', _log_lstm_acc)
                 _log_lstm_auc = _tlog['LSTM'].get('auc', _log_lstm_auc)
                 _log_lstm_mse = _tlog['LSTM'].get('mse', _log_lstm_mse)
-            _training_metrics_loaded = 'XGBoost' in _tlog and 'LSTM' in _tlog
+            _training_metrics_loaded = all(
+                name in _tlog
+                and _tlog[name].get('data_provenance', {}).get('task') == 'next_trading_day_direction_classification'
+                and _tlog[name].get('split_info')
+                for name in ('XGBoost', 'LSTM')
+            )
             if _training_metrics_loaded:
                 _comparison_source = 'training_log.json（最近一次真实训练）'
         except Exception:
             pass
     with col2:
-        st.markdown("<div class='section-title'>🎯 模型表现</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>模型状态</div>", unsafe_allow_html=True)
         with st_card():
-            _overview_acc = (_log_xgb_acc + _log_lstm_acc) / 2
-            _overview_auc = (_log_xgb_auc + _log_lstm_auc) / 2
-            st.markdown(f"<div style='margin: 15px 0;'><div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>平均准确率</div><div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{_overview_acc:.2%}</div></div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='margin: 15px 0;'><div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>平均 AUC</div><div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{_overview_auc:.4f}</div></div>", unsafe_allow_html=True)
+            if _training_metrics_loaded:
+                _overview_acc = (_log_xgb_acc + _log_lstm_acc) / 2
+                _overview_auc = (_log_xgb_auc + _log_lstm_auc) / 2
+                st.markdown(f"<div style='margin: 15px 0;'><div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>平均准确率</div><div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{_overview_acc:.2%}</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='margin: 15px 0;'><div style='color: {colors['secondary_text']}; font-size: 14px; margin-bottom: 5px;'>平均 AUC</div><div style='color: {colors['font_color']}; font-size: 32px; font-weight: 900;'>{_overview_auc:.4f}</div></div>", unsafe_allow_html=True)
+            else:
+                st.info('暂无统一口径的最新模型实验结果')
     with col3:
-        st.markdown("<div class='section-title'>⚡ 快速操作</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>运行操作</div>", unsafe_allow_html=True)
         with st_card():
             if st.button("🔄 刷新数据"):
                 st.cache_data.clear()
@@ -519,7 +565,7 @@ def show_system_overview():
                 st.rerun()
             st.markdown(f"<p style='color: {colors['secondary_text']}; font-size: 14px;'>从左侧菜单栏选择页面进行分析</p>", unsafe_allow_html=True)
 
-    st.markdown("<div class='section-title'>🤖 模型对比</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>研究证据</div>", unsafe_allow_html=True)
     comparison_path = _P('reports', 'model_comparison.csv')
     xgb_acc, xgb_auc, xgb_mse = _log_xgb_acc, _log_xgb_auc, _log_xgb_mse
     lstm_acc, lstm_auc, lstm_mse = _log_lstm_acc, _log_lstm_auc, _log_lstm_mse
@@ -553,20 +599,21 @@ def show_system_overview():
     lstm_mse_class = 'best-value' if lstm_mse < xgb_mse else ''
     table_html = f"""
         <table class='compare-table'>
-            <thead><tr><th style='width: 40%;'>评估指标</th><th style='width: 30%;'>XGBoost</th><th style='width: 30%;'>LSTM</th></tr></thead>
+            <thead><tr><th style='width: 40%;'>评估指标</th><th style='width: 30%;'>XGBoost</th><th style='width: 30%;'>BiLSTM</th></tr></thead>
             <tbody>
                 <tr><td>测试集准确率</td><td class="{xgb_acc_class}">{xgb_acc_pct:.2f}%</td><td class="{lstm_acc_class}">{lstm_acc_pct:.2f}%</td></tr>
                 <tr><td>测试集AUC</td><td class="{xgb_auc_class}">{xgb_auc:.4f}</td><td class="{lstm_auc_class}">{lstm_auc:.4f}</td></tr>
                 <tr><td>测试集MSE</td><td class="{xgb_mse_class}">{xgb_mse:.6f}</td><td class="{lstm_mse_class}">{lstm_mse:.6f}</td></tr>
             </tbody>
         </table>"""
-    st.markdown(table_html, unsafe_allow_html=True)
-    png_path = _P('reports', 'model_comparison.png')
-    if os.path.exists(png_path):
-        st.image(png_path)
-    accuracy_winner = 'XGBoost' if xgb_acc > lstm_acc else ('LSTM' if lstm_acc > xgb_acc else '两者')
-    auc_winner = 'XGBoost' if xgb_auc > lstm_auc else ('LSTM' if lstm_auc > xgb_auc else '两者')
-    mse_winner = 'XGBoost' if xgb_mse < lstm_mse else ('LSTM' if lstm_mse < xgb_mse else '两者')
+    with st.expander('查看模型对比表', expanded=False):
+        st.markdown(table_html, unsafe_allow_html=True)
+        png_path = _P('reports', 'model_comparison.png')
+        if os.path.exists(png_path):
+            st.image(png_path)
+    accuracy_winner = 'XGBoost' if xgb_acc > lstm_acc else ('BiLSTM' if lstm_acc > xgb_acc else '两者')
+    auc_winner = 'XGBoost' if xgb_auc > lstm_auc else ('BiLSTM' if lstm_auc > xgb_auc else '两者')
+    mse_winner = 'XGBoost' if xgb_mse < lstm_mse else ('BiLSTM' if lstm_mse < xgb_mse else '两者')
     if accuracy_winner == auc_winner == mse_winner and accuracy_winner != '两者':
         comparison_conclusion = (
             f"{accuracy_winner} 在准确率、AUC 和 MSE 三项测试指标上均略优。"
@@ -600,22 +647,24 @@ def show_system_overview():
             )
         except (OSError, ValueError, TypeError, IndexError):
             pass
-    st.markdown(f"""
-        <div style='margin-top: 20px;'>
-            <p style='color: {colors['secondary_text']}; font-size: 13px; margin: 0;'>{comparison_conclusion} {auc_conclusion}</p>
-            <p style='color: {colors['secondary_text']}; font-size: 12px; margin-top: 5px;'>数据来源: <code>{_comparison_source}</code></p>
-        </div>""", unsafe_allow_html=True)
-    st.markdown(f"""
-        - **预测表现**：XGBoost 准确率 {xgb_acc_pct:.2f}%、AUC {xgb_auc:.4f}；LSTM 准确率 {lstm_acc_pct:.2f}%、AUC {lstm_auc:.4f}。
-        - **原因分析**：A 股日频收益率噪声大；当前未验证情绪数据已从训练特征中排除。
-        - **回测结论**：{backtest_conclusion}
-        - **模型定位**：当前仅作为研究基线和排序信号实验，不用于宣称绝对涨跌判断能力。
-        - **未来改进方向**：引入更高频数据、增加基本面因子、使用 Transformer 模型。
-        """)
+    with st.expander('查看研究解释与限制', expanded=False):
+        st.markdown(f"""
+            <div class='interpretation-box'>
+                <strong>核心结论</strong><br>{comparison_conclusion} {auc_conclusion}<br>
+                <span class='section-note'>数据来源：<code>{_comparison_source}</code></span>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown(f"""
+            - **验证表现**：XGBoost 准确率 {xgb_acc_pct:.2f}%、AUC {xgb_auc:.4f}；BiLSTM 准确率 {lstm_acc_pct:.2f}%、AUC {lstm_auc:.4f}。
+            - **原因分析**：A 股日频收益率噪声大；当前未验证情绪数据已从训练特征中排除。
+            - **回测结论**：{backtest_conclusion}
+            - **模型定位**：当前仅作为研究基线和排序信号实验，不用于宣称绝对涨跌判断能力。
+            - **后续研究边界**：优先补齐历史股票池、复权和逐日可交易状态，再按相同口径做稳健性检验。
+            """)
 
 
 def show_data_insight():
-    st.markdown("<div class='main-title'>📊 数据洞察</div>", unsafe_allow_html=True)
+    render_page_header('数据分析 · 市场结构洞察', '从既有聚合数据中查看市场结构、价格趋势、成交和情绪的客观变化。')
     stock_catalog = get_stock_catalog(has_detail=True)
     market_summary = get_market_summary()
     theme = st.session_state.get('theme', 'dark')
@@ -623,22 +672,30 @@ def show_data_insight():
     if stock_catalog.empty or market_summary.empty:
         st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(241,196,15,0.1);color:#f39c12;font-size:14px;'>⚠️ 请先加载数据</div>", unsafe_allow_html=True)
         return
+    board_counts = stock_catalog['board'].value_counts()
+    close_start = float(market_summary['average_close'].iloc[0])
+    close_end = float(market_summary['average_close'].iloc[-1])
+    close_direction = '上升' if close_end > close_start else '下降' if close_end < close_start else '基本持平'
+    render_interpretation(
+        f"当前公开样本包含 {len(stock_catalog):,} 个资产。窗口末端的全市场平均收盘价较窗口起点{close_direction}；"
+        "以下图表只描述观测到的变化，不推断因果关系。"
+    )
     with st_card():
-        board_counts = stock_catalog['board'].value_counts()
         pie_colors = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
         fig_pie = go.Figure(go.Pie(labels=board_counts.index.tolist(), values=board_counts.values, marker=dict(colors=pie_colors, line=dict(color=colors['paper_bg'], width=2)), textinfo='label+percent+value', textfont=dict(color=colors['font_color'], size=14), hole=0.4, pull=0.03))
-        fig_pie.update_layout(height=400, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='🏛️ 股票市场板块分布', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=60, t=60, b=40), legend=dict(font=dict(size=13, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1))
+        fig_pie.update_layout(height=400, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='股票市场板块分布', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=60, t=60, b=40), legend=dict(font=dict(size=13, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1))
         st.plotly_chart(fig_pie, width='stretch', config={'displayModeBar': False})
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    with st_card():
+    with st.expander('平均收盘价趋势', expanded=True):
+      with st_card():
         daily_avg_close = market_summary[['date', 'average_close']].rename(
             columns={'average_close': 'close'}
         )
         fig_close = go.Figure()
         fig_close.add_trace(go.Scatter(x=daily_avg_close['date'], y=daily_avg_close['close'], name='全市场平均收盘价', line=dict(color=colors['accent'], width=2.5), mode='lines', fill='tozeroy', fillcolor='rgba(18, 110, 130, 0.08)'))
-        fig_close.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='💰 全市场平均收盘价走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='平均收盘价 (元)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
+        fig_close.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='全市场平均收盘价走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='平均收盘价 (元)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
         st.plotly_chart(fig_close, width='stretch', config={'displayModeBar': False})
-    with st_card():
+    with st.expander('月度成交量（近 3 年）', expanded=False):
+      with st_card():
         monthly_volume = pd.DataFrame({
             'year_month': market_summary['date'].dt.to_period('M'),
             'volume': market_summary['total_volume'],
@@ -649,24 +706,25 @@ def show_data_insight():
         monthly_volume_recent = monthly_volume[monthly_volume['year_month'] >= cutoff_period]
         fig_vol = go.Figure()
         fig_vol.add_trace(go.Bar(x=monthly_volume_recent['year_month_str'], y=monthly_volume_recent['volume'], name='月度总成交量', marker=dict(color=monthly_volume_recent['volume'], colorscale='Blues', opacity=0.85, line=dict(color='rgba(0,0,0,0)', width=0.5))))
-        fig_vol.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 每月总成交量（近3年）', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=10, color=colors['font_color']), tickangle=-45), yaxis=dict(title=dict(text='总成交量', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
+        fig_vol.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='每月总成交量（近 3 年）', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=10, color=colors['font_color']), tickangle=-45), yaxis=dict(title=dict(text='总成交量', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])))
         st.plotly_chart(fig_vol, width='stretch', config={'displayModeBar': False})
     if 'average_sentiment' in market_summary.columns and market_summary['average_sentiment'].notna().any():
-        with st_card():
+        with st.expander('市场情绪变化', expanded=False):
+          with st_card():
             daily_sentiment = market_summary[['date', 'average_sentiment']].rename(
                 columns={'average_sentiment': 'sentiment'}
             )
             fig_sent = go.Figure()
             fig_sent.add_trace(go.Scatter(x=daily_sentiment['date'], y=daily_sentiment['sentiment'], name='全市场平均情绪', line=dict(color=colors['accent'], width=2), mode='lines', fill='tozeroy'))
             fig_sent.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
-            fig_sent.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='💬 全市场情绪变化', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='平均情绪值 (-1~1)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), range=[-1.1, 1.1]))
+            fig_sent.update_layout(height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='全市场情绪变化', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=50, r=30, t=60, b=50), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='平均情绪值 (-1~1)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), range=[-1.1, 1.1]))
             st.plotly_chart(fig_sent, width='stretch', config={'displayModeBar': False})
     else:
         st.info("⚠️ 情绪数据暂不可用，请先生成情绪数据")
 
 
 def show_factor_analysis():
-    st.markdown("<div class='main-title'>📊 因子分析</div>", unsafe_allow_html=True)
+    render_page_header('因子研究 · 21个技术因子体系', '查看正式模型使用的 21 个技术因子分类、代表性走势和相关性诊断。')
     stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
@@ -678,6 +736,12 @@ def show_factor_analysis():
     priority_codes = [c for c in watchlist if c in stock_codes]
     other_codes = [c for c in stock_codes if c not in watchlist]
     display_codes = priority_codes + other_codes
+    st.markdown(
+        "<div class='section-note'><strong>因子分类：</strong>价格（close_open_ratio、high_low_ratio） · "
+        "趋势（ma5、ma10、ma20、macd） · 动量（ret_5d、momentum_20d、reversal_5d） · "
+        "波动（volatility_20d、volatility_60d、bb_position） · 成交量（volume_ma5、volume_ratio、amount_ratio）</div>",
+        unsafe_allow_html=True,
+    )
     selected_code = st.selectbox("选择股票", display_codes, key='factor_stock_select')
     df_stock = get_stock_history(selected_code)
     if df_stock.empty:
@@ -690,27 +754,28 @@ def show_factor_analysis():
             fig.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['ma5'], name='MA5', line=dict(color=colors['negative'], width=1.5, dash='dash')))
         if 'ma20' in df_stock.columns:
             fig.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['ma20'], name='MA20', line=dict(color=colors['success'], width=1.5)))
-        fig.update_layout(height=350, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='💰 价格走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=60, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=14)), legend=dict(font=dict(size=14, color=colors['font_color'])))
+        fig.update_layout(height=350, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='价格走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=60, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=14)), legend=dict(font=dict(size=14, color=colors['font_color'])))
         st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        with st_card():
-            if 'rsi' in df_stock.columns:
-                fig_rsi = go.Figure()
-                fig_rsi.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['rsi'], name='RSI', line=dict(color=colors['success'], width=2)))
-                fig_rsi.add_hline(y=70, line_dash='dash', line_color='red', annotation_text='超买')
-                fig_rsi.add_hline(y=30, line_dash='dash', line_color='green', annotation_text='超卖')
-                fig_rsi.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 RSI指标', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(showgrid=True, gridcolor=colors['grid_color']))
-                st.plotly_chart(fig_rsi, width='stretch', config={'displayModeBar': False})
-    with col2:
-        with st_card():
-            if 'macd' in df_stock.columns and 'macd_signal' in df_stock.columns:
-                fig_macd = go.Figure()
-                fig_macd.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['macd'], name='MACD', line=dict(color=colors['accent'], width=2)))
-                fig_macd.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['macd_signal'], name='Signal', line=dict(color=colors['success'], width=2)))
-                fig_macd.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📊 MACD指标', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(showgrid=True, gridcolor=colors['grid_color']))
-                st.plotly_chart(fig_macd, width='stretch', config={'displayModeBar': False})
+    with st.expander('技术指标详情：RSI 与 MACD', expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            with st_card():
+                if 'rsi' in df_stock.columns:
+                    fig_rsi = go.Figure()
+                    fig_rsi.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['rsi'], name='RSI', line=dict(color=colors['success'], width=2)))
+                    fig_rsi.add_hline(y=70, line_dash='dash', line_color='red', annotation_text='超买')
+                    fig_rsi.add_hline(y=30, line_dash='dash', line_color='green', annotation_text='超卖')
+                    fig_rsi.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='RSI 指标', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(showgrid=True, gridcolor=colors['grid_color']))
+                    st.plotly_chart(fig_rsi, width='stretch', config={'displayModeBar': False})
+        with col2:
+            with st_card():
+                if 'macd' in df_stock.columns and 'macd_signal' in df_stock.columns:
+                    fig_macd = go.Figure()
+                    fig_macd.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['macd'], name='MACD', line=dict(color=colors['accent'], width=2)))
+                    fig_macd.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['macd_signal'], name='Signal', line=dict(color=colors['success'], width=2)))
+                    fig_macd.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='MACD 指标', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(showgrid=True, gridcolor=colors['grid_color']))
+                    st.plotly_chart(fig_macd, width='stretch', config={'displayModeBar': False})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     with st_card():
         factor_cols = [c for c in ANALYTIC_FACTOR_COLUMNS if c in df_stock.columns]
@@ -718,55 +783,55 @@ def show_factor_analysis():
             selected_factors = factor_cols[:10]
             df_corr = df_stock[selected_factors].corr()
             fig_corr = go.Figure(go.Heatmap(z=df_corr.values, x=df_corr.columns, y=df_corr.columns, colorscale='RdBu_r', zmin=-1, zmax=1, text=df_corr.round(2).values, texttemplate='%{text}', textfont=dict(size=10), showscale=True))
-            fig_corr.update_layout(height=400, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='🔥 因子相关性热力图', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(tickfont=dict(size=11, color=colors['font_color']), tickangle=-45), yaxis=dict(tickfont=dict(size=11, color=colors['font_color'])))
+            fig_corr.update_layout(height=400, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='因子相关性热力图', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(tickfont=dict(size=11, color=colors['font_color']), tickangle=-45), yaxis=dict(tickfont=dict(size=11, color=colors['font_color'])))
             st.plotly_chart(fig_corr, width='stretch')
         else:
             st.info("⚠️ 因子数据不足，无法绘制热力图")
-    st.markdown("<div class='section-title'>📐 因子IC实时分析</div>", unsafe_allow_html=True)
-    factor_ic_catalog = get_factor_catalog()
-    all_factor_names = (
-        sorted(factor_ic_catalog['factor_name'].unique())
-        if not factor_ic_catalog.empty else []
-    )
-    if all_factor_names:
-        selected_ic_factors = st.multiselect("选择因子（1~5个）", all_factor_names, max_selections=5, key='ic_factor_select')
-        if selected_ic_factors:
-            min_date = factor_ic_catalog['date'].min().date()
-            max_date = factor_ic_catalog['date'].max().date()
-            default_start = (max_date - timedelta(days=365)) if (max_date - timedelta(days=365)) >= min_date else min_date
-            date_range = st.slider("选择分析日期区间", min_value=min_date, max_value=max_date, value=(default_start, max_date), key='ic_date_range')
-            queried_ic = get_factor_ic(
-                selected_ic_factors,
-                start_date=date_range[0],
-                end_date=date_range[1],
-            )
-            ic_results = {
-                factor_name: group.rename(columns={'ic': 'IC'})
-                for factor_name, group in queried_ic.groupby('factor_name')
-                if group['ic'].notna().any()
-            }
-            if ic_results:
-                color_palette = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
-                for idx, (factor_name, ic_df) in enumerate(ic_results.items()):
-                    fig_ic = go.Figure()
-                    fig_ic.add_trace(go.Scatter(x=ic_df['date'], y=ic_df['IC'], name=f'{factor_name} IC', line=dict(color=color_palette[idx % len(color_palette)], width=2), mode='lines'))
-                    fig_ic.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
-                    ic_mean = ic_df['IC'].mean()
-                    ic_std = ic_df['IC'].std()
-                    fig_ic.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=f'📈 {factor_name} IC序列 (均值={ic_mean:.4f}, 标准差={ic_std:.4f})', font=dict(size=16, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(title=dict(text='IC', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color']))
-                    st.plotly_chart(fig_ic, width='stretch', config={'displayModeBar': False})
-                ic_data = {name: df['IC'].describe().to_dict() for name, df in ic_results.items()}
-                st.dataframe(pd.DataFrame(ic_data).round(4))
+    with st.expander('因子 IC 详细分析', expanded=False):
+        factor_ic_catalog = get_factor_catalog()
+        all_factor_names = (
+            sorted(factor_ic_catalog['factor_name'].unique())
+            if not factor_ic_catalog.empty else []
+        )
+        if all_factor_names:
+            selected_ic_factors = st.multiselect("选择因子（1~5个）", all_factor_names, max_selections=5, key='ic_factor_select')
+            if selected_ic_factors:
+                min_date = factor_ic_catalog['date'].min().date()
+                max_date = factor_ic_catalog['date'].max().date()
+                default_start = (max_date - timedelta(days=365)) if (max_date - timedelta(days=365)) >= min_date else min_date
+                date_range = st.slider("选择分析日期区间", min_value=min_date, max_value=max_date, value=(default_start, max_date), key='ic_date_range')
+                queried_ic = get_factor_ic(
+                    selected_ic_factors,
+                    start_date=date_range[0],
+                    end_date=date_range[1],
+                )
+                ic_results = {
+                    factor_name: group.rename(columns={'ic': 'IC'})
+                    for factor_name, group in queried_ic.groupby('factor_name')
+                    if group['ic'].notna().any()
+                }
+                if ic_results:
+                    color_palette = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
+                    for idx, (factor_name, ic_df) in enumerate(ic_results.items()):
+                        fig_ic = go.Figure()
+                        fig_ic.add_trace(go.Scatter(x=ic_df['date'], y=ic_df['IC'], name=f'{factor_name} IC', line=dict(color=color_palette[idx % len(color_palette)], width=2), mode='lines'))
+                        fig_ic.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
+                        ic_mean = ic_df['IC'].mean()
+                        ic_std = ic_df['IC'].std()
+                        fig_ic.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=f'{factor_name} IC 序列 (均值={ic_mean:.4f}, 标准差={ic_std:.4f})', font=dict(size=16, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(title=dict(text='IC', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color']))
+                        st.plotly_chart(fig_ic, width='stretch', config={'displayModeBar': False})
+                    ic_data = {name: df['IC'].describe().to_dict() for name, df in ic_results.items()}
+                    st.dataframe(pd.DataFrame(ic_data).round(4))
+                else:
+                    st.info("该日期范围暂无可用 IC 结果")
             else:
-                st.info("该日期范围暂无可用 IC 结果")
+                st.info("请选择至少 1 个因子以开始 IC 分析")
         else:
-            st.info("👆 请选择至少1个因子以开始IC分析")
-    else:
-        st.info("👆 请选择至少1个因子以开始IC分析")
+            st.info("当前暂无可用 IC 因子")
 
 
 def show_sentiment_analysis():
-    st.markdown("<div class='main-title'>💬 情绪因子分析</div>", unsafe_allow_html=True)
+    render_page_header('情绪分析', '查看现有情绪字段的水平、波动与收益并列关系；来源状态保留在详细信息中。')
     stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
@@ -783,6 +848,21 @@ def show_sentiment_analysis():
     if len(df_stock) == 0:
         st.warning("⚠️ 此股票没有情绪数据")
         return
+    if 'sentiment' in df_stock.columns:
+        avg_sentiment = df_stock['sentiment'].mean()
+        sentiment_status = '正面' if avg_sentiment > 0.1 else ('负面' if avg_sentiment < -0.1 else '中性')
+        sentiment_std = df_stock['sentiment'].std()
+        total_days = len(df_stock)
+        positive_rate = (df_stock['sentiment'] > 0).sum() / total_days if total_days else 0
+        kpis = st.columns(4)
+        kpis[0].metric('平均情绪值', f'{avg_sentiment:.2f}', sentiment_status)
+        kpis[1].metric('情绪波动', f'{sentiment_std:.2f}')
+        kpis[2].metric('正面情绪占比', f'{positive_rate:.1%}')
+        kpis[3].metric('样本量', f'{total_days:,} 天')
+        render_interpretation(
+            f'当前窗口的平均情绪值为 {avg_sentiment:.2f}，页面将其标记为“{sentiment_status}”；'
+            '情绪与收益图只展示并列变化，不推断因果关系。'
+        )
     with st_card():
         fig = go.Figure()
         if 'sentiment' in df_stock.columns:
@@ -791,7 +871,7 @@ def show_sentiment_analysis():
             fig.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['sentiment_ma5'], name='MA5', line=dict(color=colors['success'], width=1.5, dash='dash')))
         if 'sentiment_ma10' in df_stock.columns:
             fig.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['sentiment_ma10'], name='MA10', line=dict(color=colors['success'], width=1, dash='dot')))
-        fig.update_layout(height=320, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 情绪走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, itemwidth=30, itemsizing='trace', yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=60, t=60, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), tickformat='%Y-%m-%d'), yaxis=dict(title=dict(text='情绪值 (-1~1)', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], range=[-1.1, 1.1]))
+        fig.update_layout(height=320, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='情绪走势', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, itemwidth=30, itemsizing='trace', yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=60, t=60, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), tickformat='%Y-%m-%d'), yaxis=dict(title=dict(text='情绪值 (-1~1)', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], range=[-1.1, 1.1]))
         st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
     count_column = next(
         (column for column in ('news_count', 'comment_count') if column in df_stock.columns),
@@ -800,39 +880,24 @@ def show_sentiment_analysis():
     if count_column:
         count_title = '每日文本/互动样本量'
         count_label = '样本量'
-        with st_card():
-            fig_news = go.Figure()
-            fig_news.add_trace(go.Bar(x=df_stock['date'], y=df_stock[count_column], name=count_label, marker=dict(color=colors['accent'], opacity=0.8)))
-            fig_news.update_layout(height=280, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=f'📰 {count_title}', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text=count_label, font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']))
-            st.plotly_chart(fig_news, width='stretch', config={'displayModeBar': False})
+        with st.expander(count_title, expanded=False):
+            with st_card():
+                fig_news = go.Figure()
+                fig_news.add_trace(go.Bar(x=df_stock['date'], y=df_stock[count_column], name=count_label, marker=dict(color=colors['accent'], opacity=0.8)))
+                fig_news.update_layout(height=280, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=count_title, font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text=count_label, font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']))
+                st.plotly_chart(fig_news, width='stretch', config={'displayModeBar': False})
     else:
         st.caption("当前数据快照未包含文本/互动样本量字段。")
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    if 'sentiment' in df_stock.columns:
-        col1, col2, col3 = st.columns(3)
-        avg_sentiment = df_stock['sentiment'].mean()
-        sentiment_status = '正面' if avg_sentiment > 0.1 else ('负面' if avg_sentiment < -0.1 else '中性')
-        sentiment_color = colors['positive'] if avg_sentiment > 0.1 else (colors['negative'] if avg_sentiment < -0.1 else colors['secondary_text'])
-        sentiment_std = df_stock['sentiment'].std()
-        total_days = len(df_stock)
-        positive_days = (df_stock['sentiment'] > 0).sum()
-        positive_rate = positive_days / total_days if total_days > 0 else 0
-        with col1:
-            st.markdown(f"<p style='font-size: 14px; color: {colors['secondary_text']};'>平均情绪值</p><p style='color:{sentiment_color};font-size:28px;font-weight:bold;'>{avg_sentiment:.2f}</p>", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"<p style='font-size: 12px; color: {colors['secondary_text']};'>情绪波动</p><p style='color:{colors['font_color']};font-size:28px;font-weight:bold;'>{sentiment_std:.2f}</p>", unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"<p style='font-size: 12px; color: {colors['secondary_text']};'>正面情绪占比</p><p style='color:{colors['font_color']};font-size:28px;font-weight:bold;'>{positive_rate:.1%}</p>", unsafe_allow_html=True)
     if 'close' in df_stock.columns and 'sentiment' in df_stock.columns:
         df_stock['returns'] = df_stock['close'].pct_change()
         df_stock['cumulative_return'] = (1 + df_stock['returns']).cumprod()
-        with st_card():
+        with st.expander('情绪与收益关系', expanded=True):
             fig_overlay = go.Figure()
             fig_overlay.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['sentiment'], name='情绪值', line=dict(color=colors['accent'], width=2), mode='lines', yaxis='y'))
             fig_overlay.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['cumulative_return'], name='累计收益率', line=dict(color=colors['success'], width=2), mode='lines', yaxis='y2'))
-            fig_overlay.update_layout(height=320, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 情绪与收益率叠加', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=60, t=60, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='情绪值', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']), yaxis2=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), overlaying='y', side='right', showgrid=False, tickformat='.0%'))
+            fig_overlay.update_layout(height=320, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='情绪与收益率叠加', font=dict(size=22, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=60, t=60, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='情绪值', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']), yaxis2=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), overlaying='y', side='right', showgrid=False, tickformat='.0%'))
             st.plotly_chart(fig_overlay, width='stretch', config={'displayModeBar': False})
-        with st_card():
+        with st.expander('情绪择时回测（详细）', expanded=False):
             df_stock['signal'] = (df_stock['sentiment'] > df_stock['sentiment'].rolling(10).mean()).astype(int)
             df_stock['strategy_return'] = df_stock['signal'].shift(1) * df_stock['returns']
             df_stock['strategy_cumulative'] = (1 + df_stock['strategy_return']).cumprod()
@@ -841,11 +906,10 @@ def show_sentiment_analysis():
             fig_bt.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['strategy_cumulative'], name='情绪择时策略', line=dict(color=colors['accent'], width=2.5), mode='lines'))
             fig_bt.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['bh_cumulative'], name='买入持有', line=dict(color=colors['success'], width=2, dash='dash'), mode='lines'))
             fig_bt.add_hline(y=1, line_dash='dot', line_color='rgba(128,128,128,0.5)')
-            fig_bt.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📊 情绪择时回测', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
+            fig_bt.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='情绪择时回测', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
             st.plotly_chart(fig_bt, width='stretch', config={'displayModeBar': False})
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     example_title = '情绪记录样例' if PORTFOLIO_MODE else '新闻示例分析'
-    st.markdown(f"<div class='section-title'>📰 {example_title}</div>", unsafe_allow_html=True)
+    example_panel = st.expander(example_title, expanded=False)
     try:
         if not df_stock.empty:
             news_cols = [c for c in df_stock.columns if 'news' in c.lower() or 'title' in c.lower() or 'content' in c.lower()]
@@ -862,7 +926,7 @@ def show_sentiment_analysis():
                             break
                     if not news_text:
                         news_text = f"{selected_code} 交易日数据"
-                    st.markdown(f"""
+                    example_panel.markdown(f"""
                         <div style='padding: 10px 15px; margin: 5px 0; background: {colors["paper_bg"]}; border-radius: 10px; border-left: 4px solid {colors["accent"]};'>
                             <span style='color: {colors["secondary_text"]}; font-size: 12px;'>{date_str}</span>
                             <span style='margin-left: 10px;'>{sentiment_emoji}</span>
@@ -872,13 +936,13 @@ def show_sentiment_analysis():
                     """, unsafe_allow_html=True)
             else:
                 recent_news = df_stock.sort_values('date', ascending=False).head(5)
-                st.markdown(f"<p style='color: {colors['secondary_text']}; font-size: 14px;'>当前快照不发布原始文本，展示最近情绪记录：</p>", unsafe_allow_html=True)
+                example_panel.markdown(f"<p style='color: {colors['secondary_text']}; font-size: 14px;'>当前快照不发布原始文本，展示最近情绪记录：</p>", unsafe_allow_html=True)
                 for _, row in recent_news.iterrows():
                     date_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])[:10]
                     sentiment_val = row.get('sentiment', 0)
                     sentiment_emoji = '🟢' if sentiment_val > 0.1 else ('🔴' if sentiment_val < -0.1 else '🟡')
                     sample_count = int(row.get(count_column, 0)) if count_column else 0
-                    st.markdown(f"""
+                    example_panel.markdown(f"""
                         <div style='padding: 10px 15px; margin: 5px 0; background: {colors["paper_bg"]}; border-radius: 10px; border-left: 4px solid {colors["accent"]};'>
                             <span style='color: {colors["secondary_text"]}; font-size: 12px;'>{date_str}</span>
                             <span style='margin-left: 10px;'>{sentiment_emoji}</span>
@@ -887,9 +951,9 @@ def show_sentiment_analysis():
                         </div>
                     """, unsafe_allow_html=True)
         else:
-            st.info("暂无新闻数据")
+            example_panel.info("暂无新闻数据")
     except Exception as e:
-        st.info(f"新闻示例加载中...")
+        example_panel.info("新闻示例加载中...")
 
 
 FULL_FEATURES = [
@@ -1068,7 +1132,7 @@ def _predict_lstm(df_all, lstm_model_path, selected_code=None):
 
 
 def show_prediction():
-    st.markdown("<div class='main-title'>🎯 股票预测</div>", unsafe_allow_html=True)
+    render_page_header('机器学习模型验证', '统一比较 XGBoost 与 BiLSTM 对下一交易日涨跌的样本外分类结果。')
     stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
@@ -1085,6 +1149,23 @@ def show_prediction():
             "现有模型文件缺少与当前数据快照对应的训练清单，属于历史产物。"
             "页面行情可以浏览，但模型指标与预测结果需重新训练后才可作为当前版本结论。"
         )
+    comparison_path = _P('reports', 'model_comparison.csv')
+    if os.path.exists(comparison_path):
+        try:
+            comparison_view = pd.read_csv(comparison_path)
+            comparison_view = comparison_view.rename(columns={
+                'model': '模型', 'task': '任务', 'data_split': '数据切分',
+                'features': '特征', 'auc': 'AUC', 'accuracy': 'Accuracy',
+                'precision': 'Precision', 'recall': 'Recall', 'f1': 'F1',
+            })
+            st.markdown("<div class='section-title'>模型对比</div>", unsafe_allow_html=True)
+            st.dataframe(
+                comparison_view[['模型', '任务', '数据切分', '特征', 'AUC', 'Accuracy', 'Precision', 'Recall', 'F1']],
+                width='stretch', hide_index=True,
+            )
+            st.caption('数据来源：reports/model_comparison.csv；两模型共享股票池、特征和测试区间。')
+        except (OSError, ValueError, KeyError):
+            st.info('当前模型对比表暂不可用。')
     stock_codes = stock_catalog['code'].tolist()
     watchlist = st.session_state.get('watchlist', [])
     priority_codes = [c for c in watchlist if c in stock_codes]
@@ -1095,12 +1176,13 @@ def show_prediction():
     with col_top1:
         selected_code = st.selectbox("选择股票代码", display_codes, index=default_idx, key='pred_select')
     with col_top2:
-        selected_model = st.radio("选择模型", ["XGBoost", "LSTM"], horizontal=True, key='pred_model_radio')
+        selected_model = st.radio("选择模型", ["XGBoost", "BiLSTM"], horizontal=True, key='pred_model_radio')
     portfolio_evaluation = None
     if PORTFOLIO_MODE and os.path.exists(training_log_path):
         try:
             with open(training_log_path, 'r', encoding='utf-8') as file:
-                portfolio_evaluation = json.load(file).get(selected_model)
+                portfolio_model_key = 'LSTM' if selected_model == 'BiLSTM' else selected_model
+                portfolio_evaluation = json.load(file).get(portfolio_model_key)
         except (OSError, ValueError, TypeError):
             portfolio_evaluation = None
     df_stock = get_stock_history(selected_code)
@@ -1114,7 +1196,7 @@ def show_prediction():
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     xgb_model_path = _P('results_optimized', 'xgb_fixed.json')
     lstm_model_path = _P('results_optimized', 'lstm_fixed.pth')
-    selected_model_path = lstm_model_path if selected_model == 'LSTM' else xgb_model_path
+    selected_model_path = lstm_model_path if selected_model == 'BiLSTM' else xgb_model_path
     if PORTFOLIO_MODE:
         data_range = (
             portfolio_evaluation.get('data_range', '未记录')
@@ -1127,7 +1209,7 @@ def show_prediction():
     elif st.button("📊 开始预测", key='pred_btn', width='stretch'):
         if os.path.exists(selected_model_path):
             with st.spinner("🔄 预测中，请稍候..."):
-                if selected_model == 'LSTM':
+                if selected_model == 'BiLSTM':
                     result = _predict_lstm(
                         df_stock, lstm_model_path, selected_code=selected_code
                     )
@@ -1148,18 +1230,18 @@ def show_prediction():
         else:
             st.warning(f"{selected_model} 样本外评估快照暂不可用")
     elif os.path.exists(selected_model_path):
-        recommendation = ' · 当前推荐' if selected_model == 'XGBoost' else ' · 对照模型'
-        st.success(f"{selected_model} 模型已就绪{recommendation}（当前股票：{selected_code}）")
+        role = '主分类模型' if selected_model == 'XGBoost' else '深度学习对照模型'
+        st.success(f"{selected_model} 模型已就绪 · {role}（当前股票：{selected_code}）")
     else:
         st.warning(f"{selected_model} 模型尚未生成，请先执行离线训练流水线。")
-    with st.expander("ℹ️ 模型与训练说明", expanded=False):
+    with st.expander("模型与训练说明", expanded=False):
         st.markdown(
-            "预测页面只加载已训练模型进行推理，不会按股票重复训练。当前样本外评估中，"
-            "XGBoost 的准确率、AUC 和 MSE 均略优于 LSTM，因此作为默认推荐模型；"
-            "LSTM 保留为时序模型对照实验。需要更新模型时，请在项目目录运行：\n\n"
+            "本页用于验证‘下一交易日涨跌分类’实验，不是荐股或交易机器人。页面只加载已训练模型进行推理，不会按股票重复训练。当前样本外评估中，"
+            "XGBoost 的 Accuracy 和 AUC 略高，BiLSTM 的 Recall 和 F1 略高；两者的 AUC 都接近 0.5，均只显示弱区分能力。"
+            "模型只使用当前股票池的日频技术特征，不能解释为稳定预测能力；回归结果仅作为历史诊断记录。需要更新模型时，请在项目目录运行：\n\n"
             "```powershell\npython model_training.py\npython backtest.py\n```"
         )
-    with st.expander("📊 训练日志", expanded=False):
+    with st.expander("训练日志", expanded=False):
         log_path = training_log_path
         if os.path.exists(log_path):
             try:
@@ -1175,22 +1257,54 @@ def show_prediction():
                     with c3:
                         st.metric("MSE", f"{info.get('mse', 0):.6f}")
                     with c4:
-                        st.metric("特征数", f"{info.get('feature_count', 'N/A')}")
-                    st.caption(f"数据范围: {info.get('data_range', 'N/A')} | 特征: {', '.join(info.get('features', []))}")
+                        st.metric("F1", f"{info.get('f1', 0):.4f}")
+                    st.caption(
+                        f"Precision {info.get('precision', 0):.4f} · Recall {info.get('recall', 0):.4f} · "
+                        f"特征数 {info.get('feature_count', 'N/A')} · 数据范围 {info.get('data_range', 'N/A')} · "
+                        f"测试区间 {info.get('split_info', {}).get('test_start', 'N/A')} 至 "
+                        f"{info.get('split_info', {}).get('test_end', 'N/A')}"
+                    )
                     st.divider()
             except Exception:
                 st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>训练日志读取失败</div>", unsafe_allow_html=True)
         else:
             st.markdown("<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>暂无训练日志，请先训练模型</div>", unsafe_allow_html=True)
+    with st.expander("XGBoost 特征重要性（诊断）", expanded=True):
+        if PORTFOLIO_MODE:
+            importance_files = [Path(_P('reports', 'xgb_classifier_feature_importance.csv'))]
+        else:
+            importance_files = sorted(Path(_P('results_optimized')).glob('xgb_classifier_feature_importance.csv'))
+            if not importance_files:
+                importance_files = sorted(Path(_P('results_optimized')).glob('feature_importance_*.csv'))
+        importance_files = [path for path in importance_files if path.exists()]
+        if importance_files:
+            try:
+                importance = pd.read_csv(importance_files[-1])
+                if set(importance.columns) != {'feature', 'importance'}:
+                    importance = pd.read_csv(importance_files[-1], index_col=0, header=None).reset_index()
+                    importance.columns = ['feature', 'importance']
+                importance['importance'] = pd.to_numeric(importance['importance'], errors='coerce')
+                importance = importance.dropna().sort_values('importance', ascending=False).head(10)
+                st.caption(f"来源：{importance_files[-1].name}。这是模型内部的相对贡献，不代表因果关系。")
+                st.dataframe(importance, hide_index=True, width='stretch')
+                leading = '、'.join(f"`{name}`" for name in importance['feature'].head(3))
+                st.caption(f"当前前列因子为 {leading}；重要性不表示贡献方向，也不能外推为未来收益。")
+            except (OSError, ValueError, TypeError):
+                st.info("特征重要性文件无法读取。")
+        else:
+            st.info("公开 Demo 不发布本地模型特征重要性；可在本地训练结果中查看 Top 10。")
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     result_title = '样本外评估快照' if PORTFOLIO_MODE else '预测结果'
-    st.markdown(f"<div class='section-title'>📋 {result_title}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='section-title'>{result_title}</div>", unsafe_allow_html=True)
     pred_result = st.session_state.get('_pred_result')
     if PORTFOLIO_MODE and portfolio_evaluation:
         pred_result = {
             'acc': float(portfolio_evaluation.get('accuracy', 0)) * 100,
             'auc': float(portfolio_evaluation.get('auc', 0)),
             'mse': float(portfolio_evaluation.get('mse', 0)),
+            'precision': float(portfolio_evaluation.get('precision', 0)),
+            'recall': float(portfolio_evaluation.get('recall', 0)),
+            'f1': float(portfolio_evaluation.get('f1', 0)),
         }
     if pred_result and 'error' in pred_result:
         st.markdown(f"<div style='padding:12px;border-radius:8px;background:rgba(231,76,60,0.15);color:#e74c3c;border:1px solid rgba(231,76,60,0.3);'>❌ {pred_result['error']}</div>", unsafe_allow_html=True)
@@ -1202,21 +1316,26 @@ def show_prediction():
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{pred_result['auc']:.4f}</div><div class='metric-label'>AUC</div></div>", unsafe_allow_html=True)
         with col3:
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{pred_result['mse']:.6f}</div><div class='metric-label'>MSE</div></div>", unsafe_allow_html=True)
+        if all(metric in pred_result for metric in ('precision', 'recall', 'f1')):
+            st.caption(
+                f"Precision {pred_result['precision']:.4f} · "
+                f"Recall {pred_result['recall']:.4f} · F1 {pred_result['f1']:.4f}"
+            )
     else:
         empty_message = (
             f'暂无 {selected_model} 样本外评估快照'
             if PORTFOLIO_MODE
             else f'点击「开始预测」查看 {selected_code} 的 {selected_model} 预测结果'
         )
-        st.markdown(f"<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>📊 {empty_message}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='padding:8px 12px;border-radius:8px;background:rgba(52,152,219,0.1);color:#3498db;font-size:14px;'>{empty_message}</div>", unsafe_allow_html=True)
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    chart_section = '合成行情技术参考' if PORTFOLIO_MODE else '价格预测走势'
-    st.markdown(f"<div class='section-title'>📈 {chart_section}</div>", unsafe_allow_html=True)
+    chart_section = '合成行情技术参考' if PORTFOLIO_MODE else '分类实验技术参考（非价格预测）'
+    st.markdown(f"<div class='section-title'>{chart_section}</div>", unsafe_allow_html=True)
     with st_card():
         recent_data = df_stock.tail(60).copy()
         recent_data['date_str'] = recent_data['date'].dt.strftime('%Y-%m-%d')
         fig = go.Figure()
-        pred_label = 'LSTM预测价格' if selected_model == 'LSTM' else 'XGBoost预测价格'
+        pred_label = 'BiLSTM 分类实验参考' if selected_model == 'BiLSTM' else 'XGBoost 分类实验参考'
         fig.add_trace(go.Scatter(
             x=recent_data['date_str'], y=recent_data['close'],
             name='真实价格', line=dict(color='#2E86AB', width=2.5)
@@ -1243,9 +1362,9 @@ def show_prediction():
                 name='MA5(参考)', line=dict(color='#E74C3C', width=1.5, dash='dot')
             ))
         chart_title = (
-            f'📈 合成行情价格与 MA5 参考 - {selected_code}'
+            f'合成行情价格与 MA5 参考 - {selected_code}'
             if PORTFOLIO_MODE
-            else f'📈 {selected_model} 价格预测走势 - {selected_code}'
+            else f'{selected_model} 分类实验参考 - {selected_code}'
         )
         fig.update_layout(
             height=400, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'],
@@ -1253,7 +1372,7 @@ def show_prediction():
             title=dict(text=chart_title, font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
             margin=dict(l=60, r=20, t=60, b=50),
             xaxis=dict(title=dict(text='日期', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=10, color=colors['font_color']), tickangle=45),
-            yaxis=dict(title=dict(text='价格 (元)', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])),
+            yaxis=dict(title=dict(text='价格/技术参考值（非预测价格）', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])),
             legend=dict(font=dict(size=13, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.95, xanchor='right', x=0.98)
         )
         st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
@@ -1262,7 +1381,7 @@ def show_prediction():
 def show_dashboard():
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    st.markdown("<div class='dashboard-title'>🚀 股票量化数据大屏</div>", unsafe_allow_html=True)
+    render_page_header('市场分析 · 全市场状态概览', '用最新批处理快照快速判断市场覆盖、涨跌结构和成交规模。')
     manifest = get_manifest()
     asset_summary = get_asset_summary()
     df_latest = get_market_snapshot(manifest.get('end_date'), limit=2000)
@@ -1287,14 +1406,24 @@ def show_dashboard():
     if len(df_latest) > 0 and 'open' in df_latest.columns:
         up_count = (df_latest['close'] > df_latest['open']).sum()
         down_count = (df_latest['close'] <= df_latest['open']).sum()
-    # 五张指标卡：中间最小，向两边依次放大（对称阶梯布局）
+    render_interpretation(
+        f'当前快照覆盖 {stock_count:,} 个公开分析资产，其中上涨 {int(up_count):,} 个、下跌 {int(down_count):,} 个；'
+        '行情表和排名图用于查看结构，不代表实时行情或投资建议。'
+    )
+    market_return = (
+        float(pd.to_numeric(df_latest['pct_chg'], errors='coerce').mean()) / 100
+        if 'pct_chg' in df_latest.columns else
+        float(((df_latest['close'] - df_latest['open']) / df_latest['open']).mean())
+    )
+    market_amount = float(pd.to_numeric(df_latest['amount'], errors='coerce').sum()) if 'amount' in df_latest.columns else 0.0
+    # 五张指标卡：首屏集中回答市场数量、涨跌、收益与成交规模。
     stair = [
         # (value字号, 卡片内边距)
         ('46px', '34px 20px'),   # 卡1 股票总数（最大）
-        ('38px', '28px 20px'),   # 卡2 数据记录数
-        ('28px', '22px 20px'),   # 卡3 起始日期（中间最小）
-        ('38px', '28px 20px'),   # 卡4 上涨家数
-        ('46px', '34px 20px'),   # 卡5 下跌家数（最大）
+        ('38px', '28px 20px'),   # 卡2 上涨数量
+        ('38px', '28px 20px'),   # 卡3 下跌数量
+        ('38px', '28px 20px'),   # 卡4 市场平均收益
+        ('38px', '28px 20px'),   # 卡5 成交规模
     ]
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -1302,43 +1431,43 @@ def show_dashboard():
         st.markdown(f"""
             <div class='dashboard-metric' style='padding: {pad};'>
                 <div class='dashboard-metric-value' style='font-size: {fs};'>{stock_count}</div>
-                <div class='dashboard-metric-label'>📈 股票总数</div>
+                <div class='dashboard-metric-label'>股票总数</div>
             </div>
         """, unsafe_allow_html=True)
     with col2:
         fs, pad = stair[1]
         st.markdown(f"""
             <div class='dashboard-metric' style='padding: {pad};'>
-                <div class='dashboard-metric-value' style='font-size: {fs};'>{total_records:,}</div>
-                <div class='dashboard-metric-label'>💾 数据记录数</div>
+                <div class='dashboard-metric-value' style='font-size: {fs};'>{up_count:,}</div>
+                <div class='dashboard-metric-label'>上涨数量</div>
             </div>
         """, unsafe_allow_html=True)
     with col3:
         fs, pad = stair[2]
         st.markdown(f"""
             <div class='dashboard-metric' style='padding: {pad};'>
-                <div class='dashboard-metric-value' style='font-size: {fs};'>{start_date}</div>
-                <div class='dashboard-metric-label'>📅 起始日期</div>
+                <div class='dashboard-metric-value' style='font-size: {fs};'>{down_count:,}</div>
+                <div class='dashboard-metric-label'>下跌数量</div>
             </div>
         """, unsafe_allow_html=True)
     with col4:
         fs, pad = stair[3]
         st.markdown(f"""
             <div class='dashboard-metric' style='padding: {pad};'>
-                <div class='dashboard-metric-value' style='color: #40FF80; font-size: {fs};'>{up_count}</div>
-                <div class='dashboard-metric-label'>🟢 上涨家数</div>
+                <div class='dashboard-metric-value' style='font-size: {fs};'>{market_return:.2%}</div>
+                <div class='dashboard-metric-label'>市场平均收益</div>
             </div>
         """, unsafe_allow_html=True)
     with col5:
         fs, pad = stair[4]
         st.markdown(f"""
             <div class='dashboard-metric' style='padding: {pad};'>
-                <div class='dashboard-metric-value' style='color: #FF6B6B; font-size: {fs};'>{down_count}</div>
-                <div class='dashboard-metric-label'>🔴 下跌家数</div>
+                <div class='dashboard-metric-value' style='font-size: {fs};'>{market_amount / 1e8:.2f} 亿元</div>
+                <div class='dashboard-metric-label'>成交规模</div>
             </div>
         """, unsafe_allow_html=True)
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>📋 最新交易日股票行情</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>核心行情</div>", unsafe_allow_html=True)
     if len(df_latest) > 0:
         display_cols = ['code', 'open', 'high', 'low', 'close', 'volume']
         available_cols = [c for c in display_cols if c in df_latest.columns]
@@ -1362,11 +1491,12 @@ def show_dashboard():
         if selected_board != '全部':
             df_display = df_display[df_display['板块'] == selected_board]
         df_display = df_display.sort_values(sort_col, ascending=False)
-        st.dataframe(df_display, width='stretch', height=400)
-        date_str = latest_date.strftime("%Y-%m-%d")
-        st.markdown(f"<p style='text-align: right; color: {colors['secondary_text']}; font-size: 12px;'>数据日期: {date_str} | 共 {len(df_display)} 只股票</p>", unsafe_allow_html=True)
+        with st.expander('查看最新交易日行情明细', expanded=False):
+            st.dataframe(df_display, width='stretch', height=400)
+            date_str = latest_date.strftime("%Y-%m-%d")
+            st.markdown(f"<p style='text-align: right; color: {colors['secondary_text']}; font-size: 12px;'>数据日期: {date_str} | 共 {len(df_display)} 只股票</p>", unsafe_allow_html=True)
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>🏆 涨幅榜 & 跌幅榜</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>涨幅榜与跌幅榜</div>", unsafe_allow_html=True)
     if len(df_latest) > 0 and 'open' in df_latest.columns:
         df_latest_copy = df_latest.copy()
         df_latest_copy['pct_change'] = (df_latest_copy['close'] - df_latest_copy['open']) / df_latest_copy['open'] * 100
@@ -1386,12 +1516,13 @@ def show_dashboard():
                 fig_gain.update_layout(
                     height=350, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'],
                     font=dict(color=colors['font_color']),
-                    title=dict(text='🟢 涨幅 TOP10', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
+                    title=dict(text='涨幅 TOP10', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
                     margin=dict(l=60, r=40, t=50, b=20),
                     xaxis=dict(title=dict(text='涨跌幅(%)', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']),
                     yaxis=dict(tickfont=dict(size=12, color=colors['font_color']), showgrid=False)
                 )
-                st.plotly_chart(fig_gain, width='stretch', config={'displayModeBar': False})
+                with st.expander('查看涨幅 TOP10', expanded=True):
+                    st.plotly_chart(fig_gain, width='stretch', config={'displayModeBar': False})
         with col_bottom:
             with st_card():
                 top_losers = df_latest_copy.nsmallest(10, 'pct_change')
@@ -1407,14 +1538,15 @@ def show_dashboard():
                 fig_loss.update_layout(
                     height=350, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'],
                     font=dict(color=colors['font_color']),
-                    title=dict(text='🔴 跌幅 TOP10', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
+                    title=dict(text='跌幅 TOP10', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
                     margin=dict(l=60, r=40, t=50, b=20),
                     xaxis=dict(title=dict(text='涨跌幅(%)', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']),
                     yaxis=dict(tickfont=dict(size=12, color=colors['font_color']), showgrid=False)
                 )
-                st.plotly_chart(fig_loss, width='stretch', config={'displayModeBar': False})
+                with st.expander('查看跌幅 TOP10', expanded=False):
+                    st.plotly_chart(fig_loss, width='stretch', config={'displayModeBar': False})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>📊 板块成交额分布</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>板块成交额分布</div>", unsafe_allow_html=True)
     if len(df_latest) > 0:
         with st_card():
             board_amount = (
@@ -1471,13 +1603,14 @@ def show_dashboard():
             fig_board.update_layout(
                 height=380, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'],
                 font=dict(color=colors['font_color']),
-                title=dict(text='🏛️ 板块成交额分布（最新交易日）', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
+                title=dict(text='板块成交额分布（最新交易日）', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'),
                 margin=dict(l=40, r=20, t=60, b=20),
                 legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1)
             )
-            st.plotly_chart(fig_board, width='stretch', config={'displayModeBar': False})
+            with st.expander('查看板块成交额分布', expanded=False):
+                st.plotly_chart(fig_board, width='stretch', config={'displayModeBar': False})
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>💹 收盘价分布 & 成交量分布</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>价格与成交量分布</div>", unsafe_allow_html=True)
     if len(df_latest) > 0:
         col_dist1, col_dist2 = st.columns(2)
         with col_dist1:
@@ -1491,12 +1624,13 @@ def show_dashboard():
                 fig_hist.update_layout(
                     height=320, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'],
                     font=dict(color=colors['font_color']),
-                    title=dict(text='💹 收盘价分布', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'),
+                    title=dict(text='收盘价分布', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'),
                     margin=dict(l=40, r=20, t=50, b=20),
                     xaxis=dict(title=dict(text='收盘价 (元)', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']),
                     yaxis=dict(title=dict(text='股票数量', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'])
                 )
-                st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': False})
+                with st.expander('查看收盘价分布', expanded=False):
+                    st.plotly_chart(fig_hist, width='stretch', config={'displayModeBar': False})
         with col_dist2:
             with st_card():
                 fig_vol_hist = go.Figure(go.Histogram(
@@ -1508,12 +1642,13 @@ def show_dashboard():
                 fig_vol_hist.update_layout(
                     height=320, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'],
                     font=dict(color=colors['font_color']),
-                    title=dict(text='📊 成交量分布', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'),
+                    title=dict(text='成交量分布', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'),
                     margin=dict(l=40, r=20, t=50, b=20),
                     xaxis=dict(title=dict(text='成交量', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color']),
                     yaxis=dict(title=dict(text='股票数量', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'])
                 )
-                st.plotly_chart(fig_vol_hist, width='stretch', config={'displayModeBar': False})
+                with st.expander('查看成交量分布', expanded=False):
+                    st.plotly_chart(fig_vol_hist, width='stretch', config={'displayModeBar': False})
     st.markdown(f"""
         <div style='text-align: center; padding: 20px; color: {colors['secondary_text']}; font-size: 13px;'>
             数据来源: {source_label} | 数据水位: {end_date} | 仅供研究，不构成投资建议
@@ -1539,7 +1674,7 @@ def _load_backtest_results():
 
 
 def show_backtest():
-    st.markdown("<div class='main-title'>📊 策略回测</div>", unsafe_allow_html=True)
+    render_page_header('策略研究 · 回测评价', '查看 `next_open_v2` 的可执行时序、策略与沪深 300 基准表现，以及交易成本和阻塞原因。')
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
 
@@ -1552,7 +1687,8 @@ def show_backtest():
         return
     corrected_fields = {
         'average_turnover', 'commission_rate', 'stamp_duty_rate',
-        'benchmark_name', 'benchmark_source',
+        'benchmark_name', 'benchmark_source', 'filled_order_count',
+        'blocked_missing_open_count',
     }
     if corrected_fields - set(df_metrics.columns):
         st.warning(
@@ -1560,6 +1696,11 @@ def show_backtest():
             "因此不展示为可信结果。请重新运行 `python backtest.py`。"
         )
         return
+    if 'methodology_version' not in df_metrics.columns:
+        st.warning(
+            "当前回测文件是旧版 close-to-close 快照，未按 Phase 2 的 T+1 开盘调仓口径生成；"
+            "页面仅作历史对照，请运行 backtest.py 后再解读新结果。"
+        )
     m = df_metrics.iloc[0]
     df_bt = df_bt.sort_values('date').reset_index(drop=True)
     dates = df_bt['date']
@@ -1580,21 +1721,51 @@ def show_backtest():
     n_per_day = int(m['n_stocks_per_day'])
     benchmark_name = str(m.get('benchmark_name', '股票池等权基准'))
     average_turnover = float(m.get('average_turnover', 0))
+    filled_order_count = int(m.get('filled_order_count', 0))
+    blocked_missing_open_count = int(m.get('blocked_missing_open_count', 0))
     has_cost_model = 'commission_rate' in df_metrics.columns
     commission_rate = float(m.get('commission_rate', 0))
     stamp_duty_rate = float(m.get('stamp_duty_rate', 0))
     start_d = dates.iloc[0].strftime('%Y-%m-%d')
     end_d = dates.iloc[-1].strftime('%Y-%m-%d')
 
+    st.markdown("<div class='section-title'>Current Results</div>", unsafe_allow_html=True)
+    summary = st.columns(4)
+    summary[0].metric('策略收益', f'{total_return:.2%}')
+    summary[1].metric(f'{benchmark_name}', f'{bench_total:.2%}')
+    summary[2].metric('超额收益', f'{excess_return:.2%}')
+    summary[3].metric('最大回撤', f'{max_dd:.2%}')
+    summary_2 = st.columns(4)
+    summary_2[0].metric('Sharpe', f'{sharpe:.2f}')
+    summary_2[1].metric('平均换手率', f'{average_turnover:.2%}')
+    summary_2[2].metric('成交笔数', f'{filled_order_count:,}')
+    summary_2[3].metric('缺少开盘价阻塞', f'{blocked_missing_open_count:,}')
+    st.markdown(
+        f"<div class='interpretation-box'><strong>核心解读</strong><br>策略收益为 {total_return:.2%}，低于同期{benchmark_name} {bench_total:.2%}，"
+        f"超额收益为 {excess_return:.2%}。当前信号与成本假设没有证明稳定超额收益。</div>",
+        unsafe_allow_html=True,
+    )
+
     st.markdown(f"""
         <div class="custom-info-box">
             <p style="margin: 0;">⚙️ 回测配置（真实回测结果，由 <code>backtest.py</code> 按滚动窗口 Walk-Forward 生成）：</p>
             <p style="margin: 5px 0 0 20px;">- 回测区间：<b>{start_d} ~ {end_d}</b> ｜ 初始资金：<b>{init_capital:,.0f}</b> ｜ 每日持股：<b>{n_per_day} 只</b> ｜ 平均换手：<b>{average_turnover:.1%}</b></p>
+            <p style="margin: 5px 0 0 20px;">- 已成交订单：<b>{filled_order_count:,} 笔</b> ｜ 缺少开盘价阻塞：<b>{blocked_missing_open_count:,} 笔</b></p>
         </div>
     """, unsafe_allow_html=True)
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+    with st.expander("如何理解这次回测结果", expanded=False):
+        st.markdown(
+            f"""
+            **结果先如实呈现。** 当前策略总收益为 **{total_return:.2%}**，同期{benchmark_name}为 **{bench_total:.2%}**，超额收益为 **{excess_return:.2%}**，最大回撤为 **{max_dd:.2%}**。策略没有跑赢基准。
+
+            可能原因包括：技术因子在当前样本中的预测信号较弱；Top-N 选股带来集中暴露；日频换仓产生换手和交易成本；以及涨跌停、停牌、滑点、复权和历史可交易股票池等现实约束尚未完整模拟。
+
+            这组结果只适用于当前数据、特征、参数、时间区间和成本假设。回测采用 T+1 开盘调仓、持仓跨日后再在下一交易日开盘调仓的执行近似；涨跌停、停牌和市场冲击尚未完整模拟，不构成投资建议。
+            """
+        )
     holdings_title = '研究产物说明' if PORTFOLIO_MODE else '每日持仓明细'
-    st.markdown(f"<div class='section-title'>📋 {holdings_title}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='section-title'>{holdings_title}</div>", unsafe_allow_html=True)
     if PORTFOLIO_MODE:
         st.info(
             "公开版展示脱敏回测指标和归一化净值曲线；"
@@ -1614,9 +1785,13 @@ def show_backtest():
             df_show = pd.DataFrame({
                 '日期': df_hold_f['date'].dt.strftime('%Y-%m-%d'),
                 '股票代码': df_hold_f['code'].apply(lambda x: str(int(x)).zfill(6)),
-                '预测收益': df_hold_f['predicted'].round(4),
-                '实际收益': df_hold_f['actual'].round(4),
             })
+            if {'predicted', 'actual'}.issubset(df_hold_f.columns):
+                df_show['预测标签'] = df_hold_f['predicted'].round(4)
+                df_show['实际标签'] = df_hold_f['actual'].round(4)
+            else:
+                df_show['持仓数量'] = df_hold_f['quantity'].round(4)
+                df_show['开盘估值'] = df_hold_f['mark_price'].round(4)
             st.dataframe(df_show, width='stretch', height=380)
             csv_data = df_show.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
@@ -1630,17 +1805,12 @@ def show_backtest():
             st.info("该日期范围内无持仓记录")
     else:
         st.info("未找到每日持仓文件（backtest_results/daily_portfolios.csv）")
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>🎯 回测指标</div>", unsafe_allow_html=True)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(f"<div class='metric-card'><div class='metric-value'>{win_rate:.1%}</div><div class='metric-label'>胜率</div></div>", unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"<div class='metric-card'><div class='metric-value'>{annual_return:.1%}</div><div class='metric-label'>年化收益率</div></div>", unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"<div class='metric-card'><div class='metric-value'>{sharpe:.2f}</div><div class='metric-label'>夏普比率</div></div>", unsafe_allow_html=True)
-    with col4:
-        st.markdown(f"<div class='metric-card'><div class='metric-value' style='color:#e74c3c; -webkit-text-fill-color:#e74c3c;'>{max_dd:.1%}</div><div class='metric-label'>最大回撤</div></div>", unsafe_allow_html=True)
+    with st.expander("其他回测指标", expanded=False):
+        detail_cols = st.columns(4)
+        detail_cols[0].metric('胜率', f'{win_rate:.1%}')
+        detail_cols[1].metric('年化收益率', f'{annual_return:.1%}')
+        detail_cols[2].metric('年化波动率', f'{ann_vol:.1%}')
+        detail_cols[3].metric('最大回撤', f'{max_dd:.1%}')
     # 第二行：宽幅"策略 vs 基准"收益对比条 + 窄幅波动率卡，主次分明不呆板
     col_a, col_b = st.columns([2.6, 1])
     with col_a:
@@ -1653,53 +1823,53 @@ def show_backtest():
         st.markdown(f"""
             <div class='metric-card' style='padding: 20px 26px;'>
                 <div style='display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px;'>
-                    <span style='font-size:14px; color:{txt}; font-weight:600;'>📊 累计收益对比（{start_d[:4]}–{end_d[:4]}）</span>
+                <span style='font-size:14px; color:{txt}; font-weight:600;'>累计收益对比（{start_d[:4]}–{end_d[:4]}）</span>
                     <span style='font-size:14px; color:{excess_color}; font-weight:700;'>超额收益 {excess_return:+.1%}</span>
                 </div>
                 <div style='margin-bottom:14px;'>
                     <div style='display:flex; justify-content:space-between; font-size:14px; color:{txt}; margin-bottom:5px;'>
-                        <span>🚀 策略</span><b style='color:#40A0FF;'>{total_return:+.1%}</b>
+                        <span>策略</span><b style='color:#40A0FF;'>{total_return:+.1%}</b>
                     </div>
                     <div style='background:{track}; border-radius:6px; height:16px;'>
-                        <div style='width:{w_strat:.0f}%; height:100%; border-radius:6px; background:linear-gradient(90deg,#2E86AB,#40A0FF);'></div>
+                        <div style='width:{w_strat:.0f}%; height:100%; border-radius:6px; background:#126E82;'></div>
                     </div>
                 </div>
                 <div>
                     <div style='display:flex; justify-content:space-between; font-size:14px; color:{txt}; margin-bottom:5px;'>
-                        <span>📉 {benchmark_name}</span><b style='color:#e67e22;'>{bench_total:+.1%}</b>
+                        <span>{benchmark_name}</span><b style='color:#e67e22;'>{bench_total:+.1%}</b>
                     </div>
                     <div style='background:{track}; border-radius:6px; height:16px;'>
-                        <div style='width:{w_bench:.0f}%; height:100%; border-radius:6px; background:linear-gradient(90deg,#e67e22,#f5b041);'></div>
+                        <div style='width:{w_bench:.0f}%; height:100%; border-radius:6px; background:#D6912A;'></div>
                     </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
     with col_b:
         st.markdown(f"<div class='metric-card'><div class='metric-value'>{ann_vol:.1%}</div><div class='metric-label'>年化波动率</div></div>", unsafe_allow_html=True)
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     with st_card():
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=dates, y=strat_cum, name='策略净值', line=dict(color=colors['accent'], width=2.5), mode='lines'))
         fig.add_trace(go.Scatter(x=dates, y=bench_cum, name=benchmark_name, line=dict(color=colors['success'], width=2, dash='dot'), showlegend=True))
-        fig.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📈 策略净值曲线', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=50, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), tickformat='%Y'), yaxis=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
+        fig.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='策略净值曲线', font=dict(size=20, color=colors['font_color']), x=0.03, xanchor='left'), showlegend=True, legend=dict(font=dict(size=14, color=colors['font_color']), bgcolor=colors['legend_bg'], bordercolor=colors['legend_border'], borderwidth=1, yanchor='top', y=0.9, xanchor='right', x=0.98), margin=dict(l=40, r=50, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color']), tickformat='%Y'), yaxis=dict(title=dict(text='累计收益率', font=dict(color=colors['font_color'])), tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
         st.plotly_chart(fig, width='stretch', config={'displayModeBar': True})
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    with st_card():
+    with st.expander("动态回撤曲线", expanded=False):
+      with st_card():
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=dates, y=drawdown_arr, name='回撤', line=dict(color=colors['accent'], width=2), mode='lines', fill='tonexty', fillcolor='rgba(255,102,64,0.2)'))
         fig_dd.add_hline(y=0, line_dash='dash', line_color='rgba(128,128,128,0.5)')
-        fig_dd.update_layout(height=260, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='📉 动态回撤曲线', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
+        fig_dd.update_layout(height=260, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text='动态回撤曲线', font=dict(size=18, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color'], tickfont=dict(size=12, color=colors['font_color'])), yaxis=dict(tickfont=dict(size=12, color=colors['font_color']), showgrid=True, gridcolor=colors['grid_color'], tickformat='.0%'))
         st.plotly_chart(fig_dd, width='stretch', config={'displayModeBar': True})
     cost_description = (
-        f"佣金单边 {commission_rate:.2%}、卖出印花税 {stamp_duty_rate:.2%}"
+        f"佣金单边 {commission_rate:.2%}、卖出印花税 {stamp_duty_rate:.2%}、"
+        f"买卖滑点各 {float(m.get('slippage_rate', 0.001)):.2%}"
         if has_cost_model else "旧结果未计入交易成本，请重新运行 backtest.py"
     )
     st.markdown(f"""
         <div class="custom-info-box">
-            <p style="margin: 0;">💡 回测说明（真实口径）：</p>
-            <p style="margin: 5px 0 0 20px;">- 策略：基于多因子综合评分（动量、RSI、MACD、波动率等）排序，每日买入评分最高的前 N 只股票</p>
-            <p style="margin: 5px 0 0 20px;">- 成交口径：T 日收盘后生成信号，T+1 日收盘价成交（T+1 规则，避免未来函数）</p>
-            <p style="margin: 5px 0 0 20px;">- 模型：XGBoost 滚动窗口 Walk-Forward 训练，仅用历史窗口数据，杜绝数据泄露</p>
+            <p style="margin: 0;">回测说明（真实口径）：</p>
+            <p style="margin: 5px 0 0 20px;">- 策略：基于 XGBoost 样本外上涨概率排序，每日选择概率最高的前 N 只股票</p>
+            <p style="margin: 5px 0 0 20px;">- 成交口径：T 日收盘后生成信号，T+1 开盘调仓并至少跨日持有</p>
+            <p style="margin: 5px 0 0 20px;">- 模型：XGBoost 下一交易日上涨概率，70/15/15 按时间切分</p>
             <p style="margin: 5px 0 0 20px;">- 交易成本：{cost_description}；基准：{benchmark_name}</p>
         </div>
     """, unsafe_allow_html=True)
@@ -1707,8 +1877,7 @@ def show_backtest():
 
 def show_data_platform():
     """面向数据开发岗位的数据资产、质量和血缘监控首页。"""
-    st.markdown("<div class='main-title'>数据资产驾驶舱</div>", unsafe_allow_html=True)
-    st.caption("A 股量化数据工程平台 · 资产目录、研究覆盖、在线分析与质量状态")
+    render_page_header('数据工程 · 数据资产与质量管理', '查看资产目录、研究覆盖、质量状态和公开服务层的当前水位。')
     manifest = get_manifest()
     asset_summary = get_asset_summary()
     quality_runs = get_quality_runs(limit=1)
@@ -1800,33 +1969,38 @@ def show_data_platform():
         "三种口径严格分离：资产目录与在线行情为确定性合成数据；"
         "研究覆盖数字来自本地真实数据质量报告；公开网页不分发真实逐日行情。"
     )
+    research_start_date = str(research_scale.get('start_date') or manifest['start_date'])
+    research_end_date = str(research_scale.get('end_date') or manifest['end_date'])
     metric_values = [
-        (f"{catalog_stock_count:,}", "资产目录", "完整规模目录"),
-        (f"{research_stock_count:,}", "本地研究覆盖", f"{research_record_count:,} 条真实研究记录"),
-        (f"{public_stock_count:,}", "在线分析资产", "分层代表样本"),
-        (f"{public_record_count:,}", "在线明细记录", "SQLite 按需查询"),
-        (f"{aggregate_trading_days:,}", "聚合交易日", f"水位 {aggregate_end_date}"),
-        (f"{quality_score:.1f}", "数据质量评分", f"状态 {report['quality_status']}"),
+        (f"{research_stock_count:,}", "股票数量", "本地真实研究覆盖"),
+        (f"{research_record_count:,}", "数据记录数", "本地真实因子记录"),
+        (f"{int(asset_summary['column_count']):,}", "字段数量", "公开服务表字段"),
+        (f"{research_start_date} ~ {research_end_date}", "数据时间范围", "本地研究快照"),
+        (report['quality_status'], "数据质量状态", f"评分 {quality_score:.1f}"),
     ]
-    for row_start in (0, 3):
-        columns = st.columns(3)
-        for column, (value, label, description) in zip(
-            columns, metric_values[row_start:row_start + 3]
-        ):
-            with column:
-                st.markdown(
-                    "<div class='metric-card'>"
-                    f"<div class='metric-value'>{value}</div>"
-                    f"<div class='metric-label'>{label}</div>"
-                    f"<div style='font-size:12px;color:#8FA1B7;margin-top:6px;'>{description}</div>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
+    columns = st.columns(5)
+    for column, (value, label, description) in zip(columns, metric_values):
+        with column:
+            st.markdown(
+                "<div class='metric-card'>"
+                f"<div class='metric-value metric-value-compact'>{value}</div>"
+                f"<div class='metric-label'>{label}</div>"
+                f"<div style='font-size:12px;color:#8FA1B7;margin-top:6px;'>{description}</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
     st.caption(
         f"服务库发布：{updated_text} ｜ 数据版本：{manifest.get('data_version', 'N/A')} ｜ "
         f"查询模式：只读 SQLite + 参数化 SQL + st.cache_data"
     )
+
+    with st.expander("查看公开服务层规模", expanded=False):
+        st.write(
+            f"资产目录 {catalog_stock_count:,} 个；在线分析资产 {public_stock_count:,} 个；"
+            f"在线明细记录 {public_record_count:,} 条；聚合交易日 {aggregate_trading_days:,} 天；"
+            f"聚合数据水位 {aggregate_end_date}。"
+        )
 
     st.markdown("<div class='section-title'>数据血缘与服务链路</div>", unsafe_allow_html=True)
     lineage_stages = [
@@ -1837,18 +2011,19 @@ def show_data_platform():
         ("SERVING", "SQLite 索引与只读查询"),
         ("PRODUCT", "Streamlit 数据产品"),
     ]
-    stage_columns = st.columns(len(lineage_stages))
-    for index, (stage, description) in enumerate(lineage_stages):
-        with stage_columns[index]:
-            st.markdown(
-                "<div class='metric-card' style='text-align:center;min-height:142px;padding:16px 10px;'>"
-                "<div style='font-size:11px;color:#33C58E;font-weight:700;'>READY</div>"
-                f"<div style='font-size:15px;font-weight:800;margin:8px 0;'>{stage}</div>"
-                f"<div style='font-size:11px;color:#8FA1B7;line-height:1.5;'>{description}</div>"
-                "</div>"
-                + ("<div style='text-align:center;color:#2E86AB;font-size:22px;'>→</div>" if index < len(lineage_stages) - 1 else ""),
-                unsafe_allow_html=True,
-            )
+    with st.expander("查看数据血缘阶段", expanded=False):
+        stage_columns = st.columns(len(lineage_stages))
+        for index, (stage, description) in enumerate(lineage_stages):
+            with stage_columns[index]:
+                st.markdown(
+                    "<div class='metric-card' style='text-align:center;min-height:142px;padding:16px 10px;'>"
+                    "<div style='font-size:11px;color:#33C58E;font-weight:700;'>READY</div>"
+                    f"<div style='font-size:15px;font-weight:800;margin:8px 0;'>{stage}</div>"
+                    f"<div style='font-size:11px;color:#8FA1B7;line-height:1.5;'>{description}</div>"
+                    "</div>"
+                    + ("<div style='text-align:center;color:#2E86AB;font-size:22px;'>→</div>" if index < len(lineage_stages) - 1 else ""),
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("<div class='section-title'>数据质量概览</div>", unsafe_allow_html=True)
     left, right = st.columns([1.5, 1])
@@ -1889,7 +2064,8 @@ def show_data_platform():
             margin=dict(l=30, r=20, t=20, b=30),
             yaxis=dict(gridcolor=colors['grid_color']),
         )
-        st.plotly_chart(fig_quality, width='stretch', config={'displayModeBar': False})
+        with st.expander("查看质量检查图", expanded=False):
+            st.plotly_chart(fig_quality, width='stretch', config={'displayModeBar': False})
         missing_details = report.get('missing_details', {})
         if missing_details:
             category_labels = {
@@ -1977,8 +2153,13 @@ def main():
         st.session_state.username = ''
         st.rerun()
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📱 页面导航")
-    pages = [('数据平台', 'platform'), ('市场总览', 'dashboard'), ('股票画像', 'stock_profile'), ('行业分析', 'industry'), ('系统概览', 'overview'), ('数据洞察', 'data_insight'), ('因子研究', 'factor'), ('情绪分析', 'sentiment'), ('模型预测', 'prediction'), ('策略回测', 'backtest')]
+    st.sidebar.markdown("<div class='sidebar-group'>DATA ENGINEERING</div><div class='section-note'>数据平台 · 数据洞察</div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div class='sidebar-group'>MARKET ANALYSIS</div><div class='section-note'>市场总览 · 股票画像 · 行业分析 · 情绪分析</div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div class='sidebar-group'>FACTOR &amp; ML RESEARCH</div><div class='section-note'>因子研究 · 模型验证</div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div class='sidebar-group'>STRATEGY RESEARCH</div><div class='section-note'>策略回测</div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div class='sidebar-group'>SYSTEM</div><div class='section-note'>系统概览</div>", unsafe_allow_html=True)
+    st.sidebar.markdown("### 页面导航")
+    pages = [('数据平台', 'platform'), ('市场总览', 'dashboard'), ('股票画像', 'stock_profile'), ('行业分析', 'industry'), ('系统概览', 'overview'), ('数据洞察', 'data_insight'), ('因子研究', 'factor'), ('情绪分析', 'sentiment'), ('模型验证', 'prediction'), ('策略回测', 'backtest')]
     page_labels = [p[0] for p in pages]
     page = st.sidebar.radio("页面导航", page_labels, index=0, label_visibility='collapsed', key='main_page')
     st.sidebar.markdown("---")
@@ -2039,7 +2220,7 @@ def main():
         show_factor_analysis()
     elif page == "情绪分析":
         show_sentiment_analysis()
-    elif page == "模型预测":
+    elif page == "模型验证":
         show_prediction()
     elif page == "策略回测":
         show_backtest()

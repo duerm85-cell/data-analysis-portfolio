@@ -80,8 +80,9 @@ def _format_money(value: float) -> str:
 
 
 def render_stock_profile() -> None:
-    st.title("🎯 股票画像")
-    st.caption("交互明细层：选股后才查询单股时序与所属行业同行，不加载全市场明细。")
+    st.markdown("<div class='page-eyebrow'>MARKET DETAIL</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-title'>股票画像 · 个股分析</div>", unsafe_allow_html=True)
+    st.markdown("<div class='page-lead'>按需查看单只股票的基本信息、价格、风险和行业相对位置；页面不会扫描全市场明细。</div>", unsafe_allow_html=True)
 
     catalog = get_stock_catalog(has_detail=True, limit=1000)
     if catalog.empty:
@@ -135,6 +136,12 @@ def render_stock_profile() -> None:
     kpis[2].metric("年化波动率", f"{metrics['annualized_volatility']:.2%}")
     kpis[3].metric("最大回撤", f"{metrics['max_drawdown']:.2%}")
     kpis[4].metric("日均成交额", _format_money(metrics["average_turnover"]))
+    direction = "上升" if metrics['period_return'] > 0 else "下降" if metrics['period_return'] < 0 else "基本持平"
+    st.markdown(
+        f"<div class='interpretation-box'><strong>核心解读</strong><br>在当前 {window} 个交易日窗口内，价格从起点到终点{direction}，"
+        f"区间收益为 {metrics['period_return']:.2%}，最大回撤为 {metrics['max_drawdown']:.2%}。这些是历史描述，不代表未来走势。</div>",
+        unsafe_allow_html=True,
+    )
 
     price_figure = go.Figure()
     price_figure.add_trace(
@@ -189,7 +196,8 @@ def render_stock_profile() -> None:
         margin={"l": 20, "r": 20, "t": 70, "b": 20},
         hovermode="x unified", legend={"orientation": "h", "y": 1.08},
     )
-    st.plotly_chart(indicator_figure, width="stretch", key="stock_profile_indicators")
+    with st.expander("技术指标：RSI 与 MACD", expanded=False):
+        st.plotly_chart(indicator_figure, width="stretch", key="stock_profile_indicators")
 
     returns = pd.to_numeric(history["ret"], errors="coerce")
     _, drawdown = _maximum_drawdown(history["close"])
@@ -210,7 +218,8 @@ def render_stock_profile() -> None:
         hovermode="x unified", showlegend=False,
     )
     risk_figure.update_yaxes(tickformat=".1%")
-    st.plotly_chart(risk_figure, width="stretch", key="stock_profile_risk")
+    with st.expander("收益与风险明细", expanded=False):
+        st.plotly_chart(risk_figure, width="stretch", key="stock_profile_risk")
 
     st.subheader("行业分位对比")
     peer_history = get_industry_peer_history(
@@ -242,7 +251,8 @@ def render_stock_profile() -> None:
             margin={"l": 20, "r": 20, "t": 55, "b": 20},
             xaxis_tickformat=".1%", yaxis={"categoryorder": "total ascending"},
         )
-        st.plotly_chart(peer_figure, width="stretch", key="stock_profile_peers")
+        with st.expander("查看同行收益排名", expanded=False):
+            st.plotly_chart(peer_figure, width="stretch", key="stock_profile_peers")
 
     st.caption(
         "公开作品集页面使用固定种子生成的合成演示行情；"

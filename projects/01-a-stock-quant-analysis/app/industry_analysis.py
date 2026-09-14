@@ -52,7 +52,9 @@ def _build_industry_metrics(history: pd.DataFrame) -> pd.DataFrame:
 
 
 def render_industry_analysis() -> None:
-    st.title("🏭 行业分析")
+    st.markdown("<div class='page-eyebrow'>MARKET AGGREGATE</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-title'>行业分析 · 板块表现比较</div>", unsafe_allow_html=True)
+    st.markdown("<div class='page-lead'>基于行业日聚合数据查看行业数量、近期收益排名、上涨下跌结构和成交变化。</div>", unsafe_allow_html=True)
     st.caption(
         "分析汇总层：仅查询近期行业预聚合结果，"
         "不扫描300只公开股票的日线明细。"
@@ -82,6 +84,13 @@ def render_industry_analysis() -> None:
     summary_columns[3].metric(
         "上涨行业",
         f"{int((metrics['latest_return'] > 0).sum())}/{len(metrics)}",
+    )
+    down_count = int((metrics['latest_return'] <= 0).sum())
+    st.markdown(
+        f"<div class='interpretation-box'><strong>核心解读</strong><br>当前窗口包含 {len(metrics)} 个行业，"
+        f"最新日上涨行业 {int((metrics['latest_return'] > 0).sum())} 个、下跌或持平行业 {down_count} 个。"
+        "排名只描述已有行业聚合收益，不推断市场原因。</div>",
+        unsafe_allow_html=True,
     )
 
     st.subheader("行业涨跌排名")
@@ -139,20 +148,21 @@ def render_industry_analysis() -> None:
             "amount_change_5d": "近5日成交变化",
         }
     )
-    st.dataframe(
-        display_ranking[
-            ["排名", "行业", "资产数", "5日收益", "20日收益", "60日收益", "上涨比例", "近5日成交变化"]
-        ],
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "5日收益": st.column_config.NumberColumn(format="%.2f%%"),
-            "20日收益": st.column_config.NumberColumn(format="%.2f%%"),
-            "60日收益": st.column_config.NumberColumn(format="%.2f%%"),
-            "上涨比例": st.column_config.NumberColumn(format="%.2f%%"),
-            "近5日成交变化": st.column_config.NumberColumn(format="%.2f%%"),
-        },
-    )
+    with st.expander("查看行业明细表", expanded=False):
+        st.dataframe(
+            display_ranking[
+                ["排名", "行业", "资产数", "5日收益", "20日收益", "60日收益", "上涨比例", "近5日成交变化"]
+            ],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "5日收益": st.column_config.NumberColumn(format="%.2f%%"),
+                "20日收益": st.column_config.NumberColumn(format="%.2f%%"),
+                "60日收益": st.column_config.NumberColumn(format="%.2f%%"),
+                "上涨比例": st.column_config.NumberColumn(format="%.2f%%"),
+                "近5日成交变化": st.column_config.NumberColumn(format="%.2f%%"),
+            },
+        )
 
     st.subheader("行业热力图")
     recent_dates = sorted(history["date"].dropna().unique())[-20:]
@@ -172,7 +182,8 @@ def render_industry_analysis() -> None:
         height=720,
         margin={"l": 20, "r": 20, "t": 20, "b": 20},
     )
-    st.plotly_chart(heatmap_figure, width="stretch", key="industry_heatmap")
+    with st.expander("查看行业热力图", expanded=False):
+        st.plotly_chart(heatmap_figure, width="stretch", key="industry_heatmap")
 
     st.subheader("成交变化")
     amount_ranking = metrics.sort_values("amount_change_5d", ascending=True)
@@ -195,7 +206,8 @@ def render_industry_analysis() -> None:
         xaxis_title="近5日日均成交额较前5日变化",
         xaxis_tickformat=".1%",
     )
-    st.plotly_chart(amount_figure, width="stretch", key="industry_amount_change")
+    with st.expander("查看成交变化", expanded=False):
+        st.plotly_chart(amount_figure, width="stretch", key="industry_amount_change")
 
     st.caption(
         "5/20/60日收益由行业日均收益复合计算；成交变化为最近5个"
