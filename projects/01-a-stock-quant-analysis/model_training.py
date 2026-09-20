@@ -17,7 +17,7 @@ print("[OK] NumPy导入成功")
 import xgboost as xgb
 print("[OK] XGBoost导入成功")
 
-from sklearn.metrics import mean_squared_error, r2_score, accuracy_score
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.feature_selection import SelectKBest, f_regression, mutual_info_regression
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
@@ -433,7 +433,8 @@ def _set_seed(seed=42):
     except ImportError:
         pass
 
-def _save_training_log(model_name, features, acc, auc, mse, data_range, params):
+def _save_training_log(model_name, features, acc, auc, mse, data_range, params,
+                       precision=None, recall=None, f1=None, split_info=None):
     log_path = _P('training_log.json')
     log = {}
     if os.path.exists(log_path):
@@ -449,27 +450,34 @@ def _save_training_log(model_name, features, acc, auc, mse, data_range, params):
         'accuracy': round(acc, 4),
         'auc': round(auc, 4),
         'mse': round(mse, 6),
+        'precision': round(float(precision), 4) if precision is not None else None,
+        'recall': round(float(recall), 4) if recall is not None else None,
+        'f1': round(float(f1), 4) if f1 is not None else None,
         'data_range': data_range,
         'params': params,
         'data_provenance': {
             'market_data': 'Tushare historical + AKShare/Sina incremental update',
             'sentiment_policy': 'unverified sentiment excluded from training',
             'split_policy': 'chronological split; no random train/test shuffle',
+            'task': 'next_trading_day_direction_classification',
         },
+        'split_info': split_info or {},
     }
     with open(log_path, 'w', encoding='utf-8') as f:
         json.dump(log, f, ensure_ascii=False, indent=2)
 
 def train_xgb_classifier():
     print("\n" + "=" * 60)
-    print("训练 XGBoost 分类模型（用于股票预测页面）")
+    print("训练 XGBoost 分类模型（下一交易日涨跌研究）")
     print("=" * 60)
     _set_seed(42)
     data_path = _P('data', 'processed', 'all_factors.parquet')
     if not os.path.exists(data_path):
+        data_path = _P('data', 'processed', 'all_factors.csv')
+    if not os.path.exists(data_path):
         print(f"[错误] 找不到数据文件: {data_path}")
         return
-    df = pd.read_parquet(data_path)
+    df = pd.read_parquet(data_path) if data_path.endswith('.parquet') else pd.read_csv(data_path)
     df['date'] = pd.to_datetime(df['date'])
     print(f"总样本数: {len(df):,}")
     available_features = _verified_model_features(df, CLASSIC_FEATURES)
@@ -484,9 +492,13 @@ def train_xgb_classifier():
     df = df.sort_values('date').reset_index(drop=True)
     print(f"过滤后样本数: {len(df):,}")
     data_range = f"{df['date'].min().strftime('%Y-%m-%d')} ~ {df['date'].max().strftime('%Y-%m-%d')}"
-    split_date = df['date'].quantile(0.8)
-    train_df = df[df['date'] <= split_date].copy()
-    test_df = df[df['date'] > split_date].copy()
+    # 与 BiLSTM 统一外层时间切分：70% 训练、15% 验证、15% 测试。
+    train_cutoff = df['date'].quantile(0.70)
+    validation_cutoff = df['date'].quantile(0.85)
+    # label 使用下一交易日收益；剔除两个分界日，防止标签跨入下一数据集。
+    train_df = df[df['date'] < train_cutoff].copy()
+    validation_df = df[(df['date'] > train_cutoff) & (df['date'] < validation_cutoff)].copy()
+    test_df = df[df['date'] > validation_cutoff].copy()
     X_train = train_df[available_features].fillna(0)
     y_train = (train_df['label'] > 0).astype(int)
     X_test = test_df[available_features].fillna(0)
@@ -512,24 +524,42 @@ def train_xgb_classifier():
     except Exception:
         auc = 0.5
     mse = mean_squared_error(y_test_cls.astype(float), y_pred_proba)
+    precision = precision_score(y_test_cls, y_pred_cls, zero_division=0)
+    recall = recall_score(y_test_cls, y_pred_cls, zero_division=0)
+    f1 = f1_score(y_test_cls, y_pred_cls, zero_division=0)
     print(f"分类准确率: {acc:.2%}")
     print(f"AUC: {auc:.4f}")
     print(f"MSE: {mse:.6f}")
     os.makedirs(_P('results_optimized'), exist_ok=True)
     model.save_model(_P('results_optimized', 'xgb_fixed.json'))
+    pd.DataFrame({'feature': available_features,
+                  'importance': model.feature_importances_}) \
+        .sort_values('importance', ascending=False) \
+        .to_csv(_P('results_optimized', 'xgb_classifier_feature_importance.csv'), index=False)
+    pd.DataFrame({'date': test_df['date'].to_numpy(), 'code': test_df['code'].to_numpy(),
+                  'predicted': y_pred_proba, 'actual': test_df['label'].to_numpy()}) \
+        .to_csv(_P('results_optimized', 'test_predictions_classification.csv'), index=False)
     with open(_P('results_optimized', 'xgb_feature_list.txt'), 'w') as f:
         for feat in available_features:
             f.write(feat + '\n')
     _saved = _P('results_optimized', 'xgb_fixed.json')
     print(f"XGBoost 分类模型已保存: {_saved}")
+    split_info = {'train_end': train_df['date'].max().strftime('%Y-%m-%d'),
+                  'validation_start': validation_df['date'].min().strftime('%Y-%m-%d'),
+                  'validation_end': validation_df['date'].max().strftime('%Y-%m-%d'),
+                  'test_start': test_df['date'].min().strftime('%Y-%m-%d'),
+                  'test_end': test_df['date'].max().strftime('%Y-%m-%d'),
+                  'purged_signal_dates': [train_cutoff.strftime('%Y-%m-%d'),
+                                          validation_cutoff.strftime('%Y-%m-%d')]}
     _save_training_log('XGBoost', available_features, acc, auc, mse, data_range,
                        {'n_estimators': 200, 'max_depth': 4, 'learning_rate': 0.05,
-                        'subsample': 0.8, 'colsample_bytree': 0.8, 'random_state': 42})
+                        'subsample': 0.8, 'colsample_bytree': 0.8, 'random_state': 42},
+                       precision, recall, f1, split_info)
 
 
 def train_lstm_model():
     print("\n" + "=" * 60)
-    print("训练 LSTM 分类模型（用于股票预测页面）")
+    print("训练 BiLSTM 分类模型（下一交易日涨跌研究）")
     print("=" * 60)
     _set_seed(42)
     import torch
@@ -556,9 +586,11 @@ def train_lstm_model():
 
     data_path = _P('data', 'processed', 'all_factors.parquet')
     if not os.path.exists(data_path):
+        data_path = _P('data', 'processed', 'all_factors.csv')
+    if not os.path.exists(data_path):
         print(f"[错误] 找不到数据文件: {data_path}")
         return
-    df = pd.read_parquet(data_path)
+    df = pd.read_parquet(data_path) if data_path.endswith('.parquet') else pd.read_csv(data_path)
     df['date'] = pd.to_datetime(df['date'])
     print(f"总样本数: {len(df):,}")
     available_features = _verified_model_features(df, CLASSIC_FEATURES)
@@ -573,50 +605,74 @@ def train_lstm_model():
     df = df.sort_values(['code', 'date']).reset_index(drop=True)
     print(f"过滤后样本数: {len(df):,}")
     data_range = f"{df['date'].min().strftime('%Y-%m-%d')} ~ {df['date'].max().strftime('%Y-%m-%d')}"
-    train_end = df['date'].quantile(0.70)
-    validation_end = df['date'].quantile(0.85)
-    train_df = df[df['date'] <= train_end].copy()
-    validation_df = df[(df['date'] > train_end) & (df['date'] <= validation_end)].copy()
-    test_df = df[df['date'] > validation_end].copy()
-    y_train_cls = (train_df['label'] > 0).astype(int)
-    y_validation_cls = (validation_df['label'] > 0).astype(int)
-    y_test_cls = (test_df['label'] > 0).astype(int)
+    train_cutoff = df['date'].quantile(0.70)
+    validation_cutoff = df['date'].quantile(0.85)
+    # label 使用下一交易日收益；剔除两个分界日，防止标签跨入下一数据集。
+    train_df = df[df['date'] < train_cutoff].copy()
+    validation_df = df[(df['date'] > train_cutoff) & (df['date'] < validation_cutoff)].copy()
+    test_df = df[df['date'] > validation_cutoff].copy()
     scaler = StandardScaler()
     train_features = scaler.fit_transform(train_df[available_features]).astype(np.float32)
-    validation_features = scaler.transform(validation_df[available_features]).astype(np.float32)
-    test_features = scaler.transform(test_df[available_features]).astype(np.float32)
     time_steps = 20
 
-    def create_ts(features, labels, codes, ts=20):
+    # 验证和测试序列允许使用分界日前已经可知的历史特征，但目标日期严格落在各自区间。
+    # 这样不会丢掉每个区间最初 20 个交易日，也不会把未来标签放进输入。
+    def with_history(history, current):
+        history_tail = history.groupby('code', group_keys=False).tail(time_steps)
+        return pd.concat([history_tail, current], ignore_index=True) \
+            .sort_values(['code', 'date']).reset_index(drop=True)
+
+    validation_context = with_history(df[df['date'] <= train_cutoff], validation_df)
+    test_context = with_history(df[df['date'] <= validation_cutoff], test_df)
+    validation_features = scaler.transform(validation_context[available_features]).astype(np.float32)
+    test_features = scaler.transform(test_context[available_features]).astype(np.float32)
+
+    def create_ts(features, labels, codes, dates, ts=20, target_after=None):
         X, y = [], []
         for code in np.unique(codes):
             idx = codes == code
             feat_seq = features[idx]
             label_seq = labels[idx]
+            date_seq = dates[idx]
             for i in range(ts, len(feat_seq)):
+                if target_after is not None and date_seq[i] <= target_after:
+                    continue
                 X.append(feat_seq[i - ts:i])
                 y.append(label_seq[i])
         return np.array(X), np.array(y)
 
-    X_train, y_train_ts = create_ts(train_features, y_train_cls.values, train_df['code'].values, time_steps)
+    X_train, y_train_ts = create_ts(
+        train_features, (train_df['label'] > 0).astype(int).values,
+        train_df['code'].values, train_df['date'].values, time_steps,
+    )
     X_validation, y_validation_ts = create_ts(
         validation_features,
-        y_validation_cls.values,
-        validation_df['code'].values,
+        (validation_context['label'] > 0).astype(int).values,
+        validation_context['code'].values,
+        validation_context['date'].values,
         time_steps,
+        train_cutoff.to_datetime64(),
     )
-    X_test, y_test_ts = create_ts(test_features, y_test_cls.values, test_df['code'].values, time_steps)
+    X_test, y_test_ts = create_ts(
+        test_features,
+        (test_context['label'] > 0).astype(int).values,
+        test_context['code'].values,
+        test_context['date'].values,
+        time_steps,
+        validation_cutoff.to_datetime64(),
+    )
+
     def cap_sequences(features, labels, limit):
         if len(features) <= limit:
             return features, labels
         indices = np.linspace(0, len(features) - 1, num=limit, dtype=int)
         return features[indices], labels[indices]
 
-    # Keep CPU training reproducible and runnable on an interview laptop while
-    # sampling evenly across the chronologically ordered, multi-stock sequences.
+    train_sequences_total = len(X_train)
+    validation_sequences_total = len(X_validation)
+    test_sequences_total = len(X_test)
+    # 训练集按全区间等距抽取，保证普通面试笔记本可复现；验证和测试使用全部可用目标。
     X_train, y_train_ts = cap_sequences(X_train, y_train_ts, 120_000)
-    X_validation, y_validation_ts = cap_sequences(X_validation, y_validation_ts, 40_000)
-    X_test, y_test_ts = cap_sequences(X_test, y_test_ts, 40_000)
     print(
         f"训练数据: {X_train.shape}, 验证数据: {X_validation.shape}, "
         f"测试数据: {X_test.shape}"
@@ -695,6 +751,9 @@ def train_lstm_model():
     except Exception:
         auc = 0.5
     mse = mean_squared_error(y_test_ts.astype(float), y_pred_proba)
+    precision = precision_score(y_test_ts, y_pred_cls, zero_division=0)
+    recall = recall_score(y_test_ts, y_pred_cls, zero_division=0)
+    f1 = f1_score(y_test_ts, y_pred_cls, zero_division=0)
     print(f"分类准确率: {acc:.2%}")
     print(f"AUC: {auc:.4f}")
     print(f"MSE: {mse:.6f}")
@@ -713,19 +772,28 @@ def train_lstm_model():
     np.save(_P('results_optimized', 'scaler_std.npy'), scaler.scale_)
     print("LSTM 分类模型已保存: ./results_lstm/lstm_fixed.pth")
     print("模型配置已保存: ./results_lstm/model_config.txt")
+    split_info = {'train_end': train_df['date'].max().strftime('%Y-%m-%d'),
+                  'validation_start': validation_df['date'].min().strftime('%Y-%m-%d'),
+                  'validation_end': validation_df['date'].max().strftime('%Y-%m-%d'),
+                  'test_start': test_df['date'].min().strftime('%Y-%m-%d'),
+                  'test_end': test_df['date'].max().strftime('%Y-%m-%d'),
+                  'purged_signal_dates': [train_cutoff.strftime('%Y-%m-%d'),
+                                          validation_cutoff.strftime('%Y-%m-%d')]}
     _save_training_log('LSTM', available_features, acc, auc, mse, data_range,
                        {'input_size': input_size, 'hidden_size': hidden_size,
                         'num_layers': 2, 'dropout': 0.2, 'bidirectional': True,
                         'time_steps': time_steps, 'epochs': num_epochs,
                         'lr': 0.003, 'batch_size': 512, 'patience': patience,
                         'max_train_sequences': 120000,
-                        'max_validation_sequences': 40000,
-                        'max_test_sequences': 40000})
+                        'train_sequences_total': train_sequences_total,
+                        'train_sequences_used': len(y_train_ts),
+                        'validation_sequences_evaluated': validation_sequences_total,
+                        'test_sequences_evaluated': test_sequences_total},
+                       precision, recall, f1, split_info)
 
 
 def main():
-    predictor = OptimizedStockPredictor()
-    predictor.run()
+    """运行 Phase 3 统一的下一交易日涨跌分类实验。"""
     train_xgb_classifier()
     train_lstm_model()
 

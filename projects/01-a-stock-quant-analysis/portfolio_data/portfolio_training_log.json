@@ -1,6 +1,6 @@
 {
   "XGBoost": {
-    "timestamp": "2026-08-30 12:55:09",
+    "timestamp": "2026-09-12 23:48:29",
     "features": [
       "ret_5d",
       "ma5",
@@ -25,9 +25,12 @@
       "close_open_ratio"
     ],
     "feature_count": 21,
-    "accuracy": 0.5197,
-    "auc": 0.5204,
-    "mse": 0.249599,
+    "accuracy": 0.5271,
+    "auc": 0.5276,
+    "mse": 0.249279,
+    "precision": 0.4906,
+    "recall": 0.4243,
+    "f1": 0.455,
     "data_range": "2020-02-10 ~ 2026-08-27",
     "params": {
       "n_estimators": 200,
@@ -40,11 +43,23 @@
     "data_provenance": {
       "market_data": "Tushare historical + AKShare/Sina incremental update",
       "sentiment_policy": "unverified sentiment excluded from training",
-      "split_policy": "chronological split; no random train/test shuffle"
+      "split_policy": "chronological split; no random train/test shuffle",
+      "task": "next_trading_day_direction_classification"
+    },
+    "split_info": {
+      "train_end": "2024-10-09",
+      "validation_start": "2024-10-11",
+      "validation_end": "2025-09-12",
+      "test_start": "2025-09-16",
+      "test_end": "2026-08-27",
+      "purged_signal_dates": [
+        "2024-10-10",
+        "2025-09-15"
+      ]
     }
   },
   "LSTM": {
-    "timestamp": "2026-08-30 13:33:18",
+    "timestamp": "2026-09-12 23:54:23",
     "features": [
       "ret_5d",
       "ma5",
@@ -69,9 +84,12 @@
       "close_open_ratio"
     ],
     "feature_count": 21,
-    "accuracy": 0.518,
-    "auc": 0.5162,
-    "mse": 0.250063,
+    "accuracy": 0.5143,
+    "auc": 0.5185,
+    "mse": 0.249868,
+    "precision": 0.4783,
+    "recall": 0.4822,
+    "f1": 0.4803,
     "data_range": "2020-02-10 ~ 2026-08-27",
     "params": {
       "input_size": 21,
@@ -85,13 +103,27 @@
       "batch_size": 512,
       "patience": 4,
       "max_train_sequences": 120000,
-      "max_validation_sequences": 40000,
-      "max_test_sequences": 40000
+      "train_sequences_total": 381668,
+      "train_sequences_used": 120000,
+      "validation_sequences_evaluated": 82941,
+      "test_sequences_evaluated": 83259
     },
     "data_provenance": {
       "market_data": "Tushare historical + AKShare/Sina incremental update",
       "sentiment_policy": "unverified sentiment excluded from training",
-      "split_policy": "chronological split; no random train/test shuffle"
+      "split_policy": "chronological split; no random train/test shuffle",
+      "task": "next_trading_day_direction_classification"
+    },
+    "split_info": {
+      "train_end": "2024-10-09",
+      "validation_start": "2024-10-11",
+      "validation_end": "2025-09-12",
+      "test_start": "2025-09-16",
+      "test_end": "2026-08-27",
+      "purged_signal_dates": [
+        "2024-10-10",
+        "2025-09-15"
+      ]
     }
   }
 }

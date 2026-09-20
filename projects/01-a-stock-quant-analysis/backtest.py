@@ -1,334 +1,236 @@
-# backtest.py - 回测脚本
-import sys
-print("=" * 60)
-print("backtest.py 开始执行...")
-print("=" * 60)
+"""T 日收盘信号、下一市场交易日开盘调仓的现金/持仓回测。"""
 
-import pandas as pd
+from pathlib import Path
+
 import numpy as np
-import os
-import warnings
-warnings.filterwarnings('ignore')
+import pandas as pd
 
-# ========== 路径基准：全部以本文件所在目录为根，不依赖 cwd ==========
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-def _P(*parts):
-    return os.path.join(_BASE_DIR, *parts)
+BASE_DIR = Path(__file__).resolve().parent
+METHODOLOGY_VERSION = 'next_open_v2'
+
+
+def _normalize(frame, keys=('code', 'date')):
+    data = frame.copy()
+    data['date'] = pd.to_datetime(data['date'], errors='raise').dt.normalize()
+    if 'code' in keys:
+        data['code'] = data['code'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(6)
+        if not data['code'].str.fullmatch(r'\d{6}').all():
+            raise ValueError('无效股票代码')
+    if data[list(keys)].isna().any().any() or data.duplicated(list(keys)).any():
+        raise ValueError('日期/股票主键为空或重复；禁止混合重叠实验预测')
+    return data.sort_values(list(keys)).reset_index(drop=True)
 
 
 class StockBacktester:
-    """股票回测器"""
-
     def __init__(self, output_dir=None, n_stocks=10, initial_capital=1_000_000,
-                 commission_rate=0.0003, stamp_duty_rate=0.0005):
-        self.results_dir = _P('results_optimized')
-        self.output_dir = output_dir or _P('backtest_results')
-        self.n_stocks = n_stocks
-        self.initial_capital = initial_capital
+                 commission_rate=0.0003, stamp_duty_rate=0.0005, slippage_rate=0.001):
+        if n_stocks < 1 or initial_capital <= 0:
+            raise ValueError('持仓数和资金必须为正')
+        if any(not 0 <= rate < 1 for rate in (commission_rate, stamp_duty_rate, slippage_rate)):
+            raise ValueError('费率必须位于 [0, 1)')
+        self.results_dir = BASE_DIR / 'results_optimized'
+        self.output_dir = Path(output_dir or BASE_DIR / 'backtest_results')
+        self.n_stocks, self.initial_capital = n_stocks, initial_capital
         self.commission_rate = commission_rate
-        self.stamp_duty_rate = stamp_duty_rate
-        os.makedirs(self.output_dir, exist_ok=True)
+        self.stamp_duty_rate, self.slippage_rate = stamp_duty_rate, slippage_rate
 
     def load_data(self):
-        """加载原始数据和预测结果"""
-        print("加载数据...")
-
-        data_path_parquet = _P('data', 'processed', 'all_factors.parquet')
-        data_path_csv = _P('data', 'processed', 'all_factors.csv')
-
-        if os.path.exists(data_path_parquet):
-            df = pd.read_parquet(data_path_parquet)
-        elif os.path.exists(data_path_csv):
-            df = pd.read_csv(data_path_csv, parse_dates=['date'])
-        else:
-            print("错误: 找不到处理后的数据文件!")
-            return None
-
-        print(f"原始数据加载完成: {len(df):,} 条记录")
-        return df
+        path = BASE_DIR / 'data/processed/all_factors.parquet'
+        if path.exists():
+            return pd.read_parquet(path)
+        return pd.read_csv(path.with_suffix('.csv'), dtype={'code': str})
 
     def load_predictions(self):
-        """加载预测结果"""
-        print("\n加载预测结果...")
-
-        if not os.path.isdir(self.results_dir):
-            print("错误: 预测结果目录不存在!")
-            return None
-
-        predictions_files = [f for f in os.listdir(self.results_dir) 
-                            if f.startswith('test_predictions_') and f.endswith('.csv')]
-
-        if not predictions_files:
-            print("错误: 找不到预测结果文件!")
-            return None
-
-        all_predictions = []
-        for f in predictions_files:
-            pred_df = pd.read_csv(os.path.join(self.results_dir, f), parse_dates=['date'])
-            all_predictions.append(pred_df)
-
-        predictions_df = pd.concat(all_predictions, ignore_index=True)
-        print(f"预测结果加载完成: {len(predictions_df):,} 条记录")
-        return predictions_df
+        classification_path = self.results_dir / 'test_predictions_classification.csv'
+        if not classification_path.exists():
+            raise FileNotFoundError('缺少统一口径的样本外分类预测：test_predictions_classification.csv')
+        return _normalize(pd.read_csv(classification_path, dtype={'code': str}))
 
     def load_benchmark(self):
-        """加载沪深300指数，并将 T+1 收益对齐到 T 日信号日期。"""
-        candidates = [
-            _P('data', 'processed', 'benchmark_hs300.parquet'),
-            _P('data', 'processed', 'benchmark_hs300.csv'),
-            _P('data', 'raw', 'benchmark_hs300.csv'),
-        ]
-        benchmark_path = next((path for path in candidates if os.path.exists(path)), None)
-        if benchmark_path is None:
-            print("警告: 未找到沪深300指数文件，将使用股票池等权基准")
-            return None, '股票池等权基准', 'universe_equal_weight'
+        for relative in ('data/processed/benchmark_hs300.parquet',
+                         'data/processed/benchmark_hs300.csv', 'data/raw/benchmark_hs300.csv'):
+            path = BASE_DIR / relative
+            if path.exists():
+                frame = pd.read_parquet(path) if path.suffix == '.parquet' else pd.read_csv(path)
+                frame = frame.rename(columns={'trade_date': 'date'})
+                frame['date'] = pd.to_datetime(frame['date'].astype(str).str.replace(r'\.0$', '', regex=True))
+                if 'open' not in frame:
+                    raise ValueError('基准缺少 open；不得退回不同区间的收盘收益')
+                return frame[['date', 'open']], '沪深300', relative
+        return None, '股票池等权基准', 'universe_equal_weight_open'
 
-        if benchmark_path.endswith('.parquet'):
-            benchmark = pd.read_parquet(benchmark_path)
-        else:
-            benchmark = pd.read_csv(benchmark_path)
-
-        date_col = 'date' if 'date' in benchmark.columns else 'trade_date'
-        if date_col not in benchmark.columns or 'close' not in benchmark.columns:
-            raise ValueError(f"基准文件缺少日期或 close 列: {benchmark_path}")
-
-        date_values = benchmark[date_col].astype(str).str.replace(r'\.0$', '', regex=True)
-        benchmark['date'] = pd.to_datetime(date_values, errors='coerce')
-        benchmark['close'] = pd.to_numeric(benchmark['close'], errors='coerce')
-        benchmark = benchmark.dropna(subset=['date', 'close']).sort_values('date')
-        benchmark = benchmark.drop_duplicates(subset=['date'], keep='last')
-        benchmark['benchmark_return'] = benchmark['close'].pct_change().shift(-1)
-        print(f"沪深300基准加载完成: {benchmark_path}")
-        return (
-            benchmark[['date', 'benchmark_return']].dropna(),
-            '沪深300',
-            os.path.relpath(benchmark_path, _BASE_DIR),
-        )
+    @staticmethod
+    def _blocked(row, side):
+        # 缺少该市场日记录时，不跳到该股票未来某条记录成交。
+        if row is None or not np.isfinite(row.get('open', np.nan)) or row['open'] <= 0:
+            return 'missing_open'
+        # 日总量为零只能作为保守的事后不可交易筛选，不证明开盘流动性。
+        if not np.isfinite(row.get('volume', np.nan)) or row['volume'] <= 0:
+            return 'missing_or_zero_volume'
+        if pd.notna(row.get('is_suspended')) and bool(row['is_suspended']):
+            return 'suspended'
+        if pd.notna(row.get('can_' + side)) and not bool(row['can_' + side]):
+            return 'explicit_block'
+        # 有真实逐日限价才判断；不假定全市场统一 10%。缺少限价在报告中声明。
+        bound = row.get('limit_up' if side == 'buy' else 'limit_down', np.nan)
+        if pd.notna(bound) and ((side == 'buy' and row['open'] >= bound) or
+                                (side == 'sell' and row['open'] <= bound)):
+            return 'price_limit'
+        return None
 
     def simple_strategy_backtest(self, predictions_df, benchmark_df=None,
                                  benchmark_name='股票池等权基准',
-                                 benchmark_source='universe_equal_weight'):
-        """简单策略回测
-
-        回测机制：
-          - 信号产生：T 日收盘后，根据当日因子计算的模型预测结果（predicted）对股票排序选股
-          - 成交口径：T+1 日收益率（即 actual = ret.shift(-1) = T+1 日收益率）
-          - 权重分配：等权重持有 Top-N
-          - 风控规则：不单独做止盈止损，仅做日频换仓
-
-        注意：本系统的标签 actual = T+1 日收益率，故在 date=T 时选股、actual
-        用作 T+1 的成交收益，严格满足 T+1 成交，不存在“当日收盘决策、当日收盘
-        成交”这样的未来函数问题。
-        """
-        print("\n开始简单策略回测...")
-
-        required_columns = {'date', 'code', 'predicted', 'actual'}
-        missing_columns = required_columns - set(predictions_df.columns)
-        if missing_columns:
-            raise ValueError(f"预测结果缺少列: {sorted(missing_columns)}")
-
-        df = predictions_df.copy()
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        df['predicted'] = pd.to_numeric(df['predicted'], errors='coerce')
-        df['actual'] = pd.to_numeric(df['actual'], errors='coerce')
-        df = df.dropna(subset=['date', 'code', 'predicted', 'actual'])
-
-        print(f"回测时间范围: {df['date'].min()} 至 {df['date'].max()}")
-        print(f"回测股票数量: {df['code'].nunique()}")
-
-        # 每日选股策略：选择预测收益率最高的N只股票
-        N = self.n_stocks
-        initial_capital = self.initial_capital
-
-        print(f"\n策略参数:")
-        print(f"  每日选股数: {N}")
-        print(f"  初始资金: {initial_capital:,}")
-        print(f"  成交口径: T+1 日收益率（使用 actual/label = ret.shift(-1)）")
-
-        results = []
-        daily_portfolios = []
-        previous_codes = set()
-
-        # 按日期分组处理
-        for date, group in df.groupby('date'):
-            # T 日收盘后按 predicted 排序，选出 Top-N
-            group_sorted = group.sort_values('predicted', ascending=False)
-            selected = group_sorted.head(N)
-
-            if len(selected) == 0:
-                continue
-
-            # T+1 日实现收益 = actual = ret.shift(-1)
-            # 即：T 日选股，T+1 日按 close-to-close 成交
-            gross_return = selected['actual'].mean()
-            current_codes = set(selected['code'].astype(str))
-            if previous_codes:
-                sold_weight = len(previous_codes - current_codes) / len(previous_codes)
-                bought_weight = len(current_codes - previous_codes) / len(current_codes)
-                turnover = 0.5 * (sold_weight + bought_weight)
-                transaction_cost = (
-                    sold_weight * (self.commission_rate + self.stamp_duty_rate)
-                    + bought_weight * self.commission_rate
-                )
-            else:
-                turnover = 1.0
-                transaction_cost = self.commission_rate
-
-            portfolio_return = gross_return - transaction_cost
-            previous_codes = current_codes
-
-            results.append({
-                'date': date,
-                'portfolio_return': portfolio_return,
-                'n_stocks': len(selected),
-                'avg_predicted_return': selected['predicted'].mean(),
-                'gross_return': gross_return,
-                'transaction_cost': transaction_cost,
-                'turnover': turnover,
-                'avg_actual_return': gross_return,
-            })
-
-            # 记录每日持仓
-            for _, row in selected.iterrows():
-                daily_portfolios.append({
-                    'date': date,
-                    'code': row['code'],
-                    'predicted': row['predicted'],
-                    'actual': row['actual']
-                })
-
-        results_df = pd.DataFrame(results)
-        results_df = results_df.sort_values('date').reset_index(drop=True)
-        if results_df.empty:
-            raise ValueError("没有可用于回测的有效预测记录")
-
-        # 计算累积收益率
-        results_df['cumulative_return'] = (1 + results_df['portfolio_return']).cumprod()
-        results_df['equity_curve'] = initial_capital * results_df['cumulative_return']
-
-        # 没有指数文件时，明确退化为股票池等权基准，不冒充沪深300。
-        if benchmark_df is None:
-            all_stock_returns = df.groupby('date')['actual'].mean()
-            benchmark_df = pd.DataFrame({
-                'date': all_stock_returns.index,
-                'benchmark_return': all_stock_returns.values,
-            })
-            benchmark_name = '股票池等权基准'
-            benchmark_source = 'universe_equal_weight'
+                                 benchmark_source='universe_equal_weight_open', *, market_df=None):
+        if market_df is None:
+            raise ValueError('必须提供行情执行价格；禁止使用 actual 标签回退计算收益')
+        signals = _normalize(predictions_df)
+        signals['predicted'] = pd.to_numeric(signals['predicted'], errors='raise')
+        if signals.empty or not np.isfinite(signals['predicted']).all():
+            raise ValueError('预测为空或包含无效值')
+        market = _normalize(market_df)
+        for column in ('open', 'volume'):
+            market[column] = pd.to_numeric(market[column], errors='coerce')
+        calendar = pd.DatetimeIndex(sorted(market['date'].unique()))
+        if not signals['date'].isin(calendar).all():
+            raise ValueError('信号日期必须属于行情市场日历')
+        # 末端信号没有次日执行和再下一日估值，按可执行区间自然截断。
+        executable_cutoff = calendar[-3]
+        signals = signals[signals['date'] <= executable_cutoff].copy()
+        if signals.empty:
+            raise ValueError('没有同时具备次日执行和再下一日估值的信号')
+        first, last = calendar.get_loc(signals['date'].min()), calendar.get_loc(signals['date'].max())
+        dates = calendar[first + 1:last + 3]
+        # 全部收益区间先对齐，再计算净值；缺失基准不能事后删掉策略日期。
+        if benchmark_df is not None:
+            benchmark = _normalize(benchmark_df, ('date',)).set_index('date')['open'].reindex(dates)
+            benchmark = pd.to_numeric(benchmark, errors='coerce')
+            if not np.isfinite(benchmark).all() or (benchmark <= 0).any():
+                raise ValueError('基准开盘价覆盖不完整')
+            benchmark_curve = benchmark / benchmark.iloc[0]
         else:
-            benchmark_df = benchmark_df.copy()
-            benchmark_df['date'] = pd.to_datetime(benchmark_df['date'], errors='coerce')
-            benchmark_df = benchmark_df.dropna(subset=['date', 'benchmark_return'])
+            universe = market[market['code'].isin(signals['code'].unique())].pivot(
+                index='date', columns='code', values='open').reindex(dates)
+            if universe.empty or not np.isfinite(universe).all().all() or (universe <= 0).any().any():
+                raise ValueError('等权基准缺少开盘价；请提供完整指数基准')
+            benchmark_curve = (1 + universe.pct_change(fill_method=None).mean(axis=1).fillna(0)).cumprod()
 
-        # 合并结果
-        results_df = results_df.merge(
-            benchmark_df[['date', 'benchmark_return']], on='date', how='left'
+        signal_days = {day: group for day, group in signals.groupby('date')}
+        bars = {(r['date'], r['code']): r for r in market.to_dict('records')}
+        cash, previous_nav = float(self.initial_capital), float(self.initial_capital)
+        shares, marks = {}, {}
+        results, holdings, orders = [], [], []
+        for i, day in enumerate(dates):
+            stale_marks = 0
+            for code in shares:
+                row = bars.get((day, code))
+                if row is not None and np.isfinite(row['open']) and row['open'] > 0:
+                    marks[code] = row['open']
+                else:
+                    # 卖不掉的持仓继续保留，按上次有效开盘价暂估，不能凭空变回现金。
+                    stale_marks += 1
+            before = cash + sum(q * marks[c] for c, q in shares.items())
+            costs, slippage, traded = 0.0, 0.0, 0.0
+            signal_day = calendar[calendar.get_loc(day) - 1]
+            group = signal_days.get(signal_day)
+            if i < len(dates) - 1 and group is not None:
+                selected = group.sort_values(['predicted', 'code'], ascending=[False, True]).head(self.n_stocks)
+                scores = selected.set_index('code')['predicted'].to_dict()
+                # 入选失败不补位、不把剩余股票放大至满仓；Top-N 策略保持原意。
+                budget = before / self.n_stocks
+                desired = {}
+                for code in scores:
+                    row = bars.get((day, code))
+                    price = row.get('open', np.nan) if row else np.nan
+                    desired[code] = budget / price if np.isfinite(price) and price > 0 else shares.get(code, 0)
+                    if not np.isfinite(price) or price <= 0:
+                        orders.append(dict(date=day, signal_date=signal_day, code=code, side='buy',
+                                           status='blocked', reason='missing_open', quantity=0))
+                # 先卖已有仓位，再买；今天新买的股票不会在今天卖出，满足 T+1 最短持有。
+                for side in ('sell', 'buy'):
+                    codes = sorted(shares) if side == 'sell' else list(scores)
+                    for code in codes:
+                        quantity = (shares.get(code, 0) - desired.get(code, 0)) if side == 'sell' else (
+                            desired.get(code, 0) - shares.get(code, 0))
+                        if quantity <= 1e-10:
+                            continue
+                        row = bars.get((day, code))
+                        reason = self._blocked(row, side)
+                        if reason:
+                            orders.append(dict(date=day, signal_date=signal_day, code=code, side=side,
+                                               status='blocked', reason=reason, quantity=quantity))
+                            continue
+                        reference = row['open']
+                        price = reference * (1 + self.slippage_rate if side == 'buy' else 1 - self.slippage_rate)
+                        rate = self.commission_rate + (self.stamp_duty_rate if side == 'sell' else 0)
+                        if side == 'buy':
+                            quantity = min(quantity, max(cash, 0) / (price * (1 + rate)))
+                        if quantity <= 1e-10:
+                            continue
+                        value, fee = quantity * price, quantity * price * rate
+                        cash += value - fee if side == 'sell' else -value - fee
+                        shares[code] = shares.get(code, 0) + (-quantity if side == 'sell' else quantity)
+                        marks[code] = reference
+                        costs += fee
+                        slippage += quantity * abs(price - reference)
+                        traded += quantity * reference
+                        orders.append(dict(date=day, signal_date=signal_day, code=code, side=side,
+                                           status='filled', reason='', quantity=quantity, price=price, fee=fee))
+                shares = {c: q for c, q in shares.items() if q > 1e-10}
+            nav = cash + sum(q * marks[c] for c, q in shares.items())
+            results.append(dict(date=day, signal_date=signal_day, portfolio_return=nav / previous_nav - 1,
+                                gross_return=before / previous_nav - 1, equity_curve=nav,
+                                cumulative_return=nav / self.initial_capital,
+                                transaction_cost=costs / previous_nav, transaction_cost_amount=costs,
+                                slippage_amount=slippage, turnover=traded / (2 * before),
+                                cash=cash, n_stocks=len(shares), stale_price_positions=stale_marks))
+            for code, quantity in shares.items():
+                holdings.append(dict(date=day, code=code, quantity=quantity, mark_price=marks[code]))
+            previous_nav = nav
+        result = pd.DataFrame(results)
+        result['benchmark_cumulative'] = benchmark_curve.to_numpy()
+        result['benchmark_return'] = benchmark_curve.pct_change(fill_method=None).fillna(0).to_numpy()
+        result['benchmark_equity'] = result['benchmark_cumulative'] * self.initial_capital
+        values = np.r_[self.initial_capital, result['equity_curve']]
+        drawdown = values / np.maximum.accumulate(values) - 1
+        returns = result['portfolio_return']
+        vol = returns.std() * np.sqrt(252)
+        total, bench_total = values[-1] / self.initial_capital - 1, benchmark_curve.iloc[-1] - 1
+        filled_order_count = sum(order['status'] == 'filled' for order in orders)
+        blocked_order_count = sum(order['status'] == 'blocked' for order in orders)
+        blocked_missing_open_count = sum(
+            order['status'] == 'blocked' and order['reason'] == 'missing_open'
+            for order in orders
         )
-        results_df = results_df.dropna(subset=['benchmark_return']).reset_index(drop=True)
-        if results_df.empty:
-            raise ValueError("策略日期与基准日期没有交集")
-        results_df['benchmark_cumulative'] = (1 + results_df['benchmark_return']).cumprod()
-        results_df['benchmark_equity'] = initial_capital * results_df['benchmark_cumulative']
-
-        # 计算策略指标
-        total_return = results_df['cumulative_return'].iloc[-1] - 1
-        benchmark_total_return = results_df['benchmark_cumulative'].iloc[-1] - 1
-        
-        daily_returns = results_df['portfolio_return'].dropna()
-        annualized_return = results_df['cumulative_return'].iloc[-1] ** (252 / len(daily_returns)) - 1
-        annualized_volatility = daily_returns.std() * np.sqrt(252)
-        
-        if annualized_volatility > 0:
-            sharpe_ratio = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
-        else:
-            sharpe_ratio = 0
-
-        # 最大回撤
-        equity = results_df['equity_curve'].values
-        cummax = np.maximum.accumulate(equity)
-        drawdown = (equity - cummax) / cummax
-        max_drawdown = drawdown.min()
-
-        # 胜率
-        win_rate = (results_df['portfolio_return'] > 0).mean()
-
-        print(f"\n策略表现:")
-        print(f"  总收益率: {total_return:.2%}")
-        print(f"  年化收益率: {annualized_return:.2%}")
-        print(f"  年化波动率: {annualized_volatility:.2%}")
-        print(f"  夏普比率: {sharpe_ratio:.2f}")
-        print(f"  最大回撤: {max_drawdown:.2%}")
-        print(f"  胜率: {win_rate:.2%}")
-
-        print(f"\n基准表现 ({benchmark_name}):")
-        print(f"  基准总收益率: {benchmark_total_return:.2%}")
-        print(f"  策略vs基准超额收益: {total_return - benchmark_total_return:.2%}")
-
-        # 保存回测结果
-        results_df.to_csv(os.path.join(self.output_dir, 'backtest_results.csv'), index=False)
-        pd.DataFrame(daily_portfolios).to_csv(os.path.join(self.output_dir, 'daily_portfolios.csv'), index=False)
-
-        # 保存回测指标
-        metrics = {
-            'initial_capital': initial_capital,
-            'n_stocks_per_day': N,
-            'total_return': total_return,
-            'annualized_return': annualized_return,
-            'annualized_volatility': annualized_volatility,
-            'sharpe_ratio': sharpe_ratio,
-            'max_drawdown': max_drawdown,
-            'win_rate': win_rate,
-            'average_turnover': results_df['turnover'].mean(),
-            'total_transaction_cost': results_df['transaction_cost'].sum(),
-            'commission_rate': self.commission_rate,
-            'stamp_duty_rate': self.stamp_duty_rate,
-            'benchmark_name': benchmark_name,
-            'benchmark_source': benchmark_source,
-            'benchmark_total_return': benchmark_total_return,
-            'excess_return': total_return - benchmark_total_return
-        }
-
-        pd.DataFrame([metrics]).to_csv(os.path.join(self.output_dir, 'backtest_metrics.csv'), index=False)
-
-        print(f"\n回测结果已保存到: {os.path.abspath(self.output_dir)}")
-
-        return results_df, metrics
+        metrics = dict(methodology_version=METHODOLOGY_VERSION, execution_price_source='next_market_open',
+                       initial_capital=self.initial_capital, n_stocks_per_day=self.n_stocks,
+                       total_return=total, benchmark_total_return=bench_total, excess_return=total - bench_total,
+                       annualized_return=(1 + total) ** (252 / (len(dates) - 1)) - 1,
+                       annualized_volatility=vol, sharpe_ratio=returns.mean() * 252 / vol if vol > 0 else 0,
+                       max_drawdown=drawdown.min(), win_rate=(returns > 0).mean(),
+                       average_turnover=result['turnover'].mean(), total_transaction_cost=result['transaction_cost'].sum(),
+                       transaction_cost_amount=result['transaction_cost_amount'].sum(),
+                       slippage_amount=result['slippage_amount'].sum(), commission_rate=self.commission_rate,
+                       stamp_duty_rate=self.stamp_duty_rate, slippage_rate=self.slippage_rate,
+                       benchmark_name=benchmark_name, benchmark_source=benchmark_source,
+                       signal_source='xgboost_direction_probability', final_holdings_policy='mark_only_no_liquidation',
+                       filled_order_count=filled_order_count, blocked_order_count=blocked_order_count,
+                       blocked_missing_open_count=blocked_missing_open_count,
+                       price_limit_data_available=all(c in market and market[c].notna().all()
+                                                     for c in ('limit_up', 'limit_down')),
+                       suspension_data_available='is_suspended' in market and market['is_suspended'].notna().all())
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        result.to_csv(self.output_dir / 'backtest_results.csv', index=False)
+        pd.DataFrame([metrics]).to_csv(self.output_dir / 'backtest_metrics.csv', index=False)
+        pd.DataFrame(holdings).to_csv(self.output_dir / 'daily_portfolios.csv', index=False)
+        pd.DataFrame(orders).to_csv(self.output_dir / 'execution_log.csv', index=False)
+        return result, metrics
 
     def run(self):
-        """运行回测"""
-        try:
-            print("=" * 60)
-            print("股票量化策略回测系统")
-            print("=" * 60)
+        benchmark, name, source = self.load_benchmark()
+        result, metrics = self.simple_strategy_backtest(self.load_predictions(), benchmark, name, source,
+                                                        market_df=self.load_data())
+        print(f"{METHODOLOGY_VERSION}: {len(result)} 开盘估值点；收益 {metrics['total_return']:.2%}")
 
-            df = self.load_data()
-            if df is None:
-                return
 
-            predictions_df = self.load_predictions()
-            if predictions_df is None:
-                return
-
-            benchmark_df, benchmark_name, benchmark_source = self.load_benchmark()
-            self.simple_strategy_backtest(
-                predictions_df,
-                benchmark_df=benchmark_df,
-                benchmark_name=benchmark_name,
-                benchmark_source=benchmark_source,
-            )
-
-            print("\n" + "="*60)
-            print("回测完成!")
-            print("="*60)
-
-        except Exception as e:
-            print(f"\n错误: {e}")
-            import traceback
-            traceback.print_exc()
-
-def main():
-    backtester = StockBacktester()
-    backtester.run()
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    StockBacktester().run()
