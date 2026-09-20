@@ -55,10 +55,19 @@ projects/01-a-stock-quant-analysis/reports/**
 !projects/01-a-stock-quant-analysis/reports/benchmark_results.json
 !projects/01-a-stock-quant-analysis/reports/stage2_optimization_report.md
 !projects/01-a-stock-quant-analysis/reports/stage2_performance_comparison.json
+!projects/01-a-stock-quant-analysis/reports/model_comparison.csv
+!projects/01-a-stock-quant-analysis/reports/xgb_classifier_feature_importance.csv
 
 # 临时文件
 *.tmp
 *.bak
+
+# 本地作品集、渲染和交接产物（不属于项目运行链路）
+/artifacts/
+/output/
+/tmp/
+/tools/
+/项目全景总结与AI交接文档.md
 
 # 系统
 .DS_Store

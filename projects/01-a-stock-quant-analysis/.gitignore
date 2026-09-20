@@ -37,6 +37,12 @@ data/users.db
 *.log
 logs/
 
+# 仓库外生成的本地材料不应进入项目提交
+../../artifacts/
+../../output/
+../../tmp/
+../../tools/
+
 # 系统文件
 .DS_Store
 Thumbs.db
