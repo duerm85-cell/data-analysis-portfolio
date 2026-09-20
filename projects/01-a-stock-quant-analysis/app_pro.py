@@ -497,10 +497,28 @@ def show_system_overview():
     if not asset_summary:
         st.warning("⚠️ 请先生成数据")
         return
-    st.markdown(
-        "<div class='section-note'>数据 → 数据质量 → 特征 → 模型 → 回测 → Dashboard</div>",
-        unsafe_allow_html=True,
+    pipeline_stages = (
+        ('01', '数据采集', 'Raw / Serving'),
+        ('02', '数据质量检查', '缺失、异常与字段校验'),
+        ('03', '因子工程', '21 个技术因子'),
+        ('04', '机器学习模型', 'XGBoost + BiLSTM'),
+        ('05', '策略回测', 'next_open_v2 + 成本'),
+        ('06', 'Streamlit Dashboard', '研究结果展示'),
     )
+    st.markdown("<div class='section-title'>研究流程</div>", unsafe_allow_html=True)
+    pipeline_columns = st.columns(len(pipeline_stages))
+    for index, (step, label, detail) in enumerate(pipeline_stages):
+        with pipeline_columns[index]:
+            arrow = "<div style='color:#168A9A;font-size:18px;margin-top:8px;'>→</div>" if index < len(pipeline_stages) - 1 else ""
+            st.markdown(
+                "<div class='metric-card' style='min-height:132px;padding:14px 10px;text-align:center;'>"
+                f"<div style='font-size:11px;color:#168A9A;font-weight:750;letter-spacing:.08em;'>{step}</div>"
+                f"<div style='font-size:15px;font-weight:750;margin:10px 0 6px;'>{label}</div>"
+                f"<div style='font-size:11px;color:#6D7E91;line-height:1.45;'>{detail}</div>"
+                f"{arrow}</div>",
+                unsafe_allow_html=True,
+            )
+    st.markdown("<div class='section-title'>运行概览</div>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("<div class='section-title'>数据状态</div>", unsafe_allow_html=True)
@@ -680,6 +698,11 @@ def show_data_insight():
         f"当前公开样本包含 {len(stock_catalog):,} 个资产。窗口末端的全市场平均收盘价较窗口起点{close_direction}；"
         "以下图表只描述观测到的变化，不推断因果关系。"
     )
+    insight_kpis = st.columns(4)
+    insight_kpis[0].metric('公开分析资产', f'{len(stock_catalog):,}')
+    insight_kpis[1].metric('板块数量', f'{len(board_counts):,}')
+    insight_kpis[2].metric('观测交易日', f'{len(market_summary):,}')
+    insight_kpis[3].metric('窗口末平均收盘', f'{close_end:.2f}', close_direction)
     with st_card():
         pie_colors = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
         fig_pie = go.Figure(go.Pie(labels=board_counts.index.tolist(), values=board_counts.values, marker=dict(colors=pie_colors, line=dict(color=colors['paper_bg'], width=2)), textinfo='label+percent+value', textfont=dict(color=colors['font_color'], size=14), hole=0.4, pull=0.03))
@@ -747,6 +770,12 @@ def show_factor_analysis():
     if df_stock.empty:
         st.warning("⚠️ 此股票暂无可用因子明细")
         return
+    factor_kpis = st.columns(5)
+    factor_kpis[0].metric('研究标的', selected_code)
+    factor_kpis[1].metric('观测天数', f'{len(df_stock):,} 天')
+    factor_kpis[2].metric('最新收盘', f"{float(df_stock['close'].iloc[-1]):.2f}")
+    factor_kpis[3].metric('数据起始', pd.Timestamp(df_stock['date'].iloc[0]).date().isoformat())
+    factor_kpis[4].metric('数据截止', pd.Timestamp(df_stock['date'].iloc[-1]).date().isoformat())
     with st_card():
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_stock['date'], y=df_stock['close'], name='收盘价', line=dict(color=colors['accent'], width=2.5)))
@@ -1150,6 +1179,7 @@ def show_prediction():
             "页面行情可以浏览，但模型指标与预测结果需重新训练后才可作为当前版本结论。"
         )
     comparison_path = _P('reports', 'model_comparison.csv')
+    comparison_view = pd.DataFrame()
     if os.path.exists(comparison_path):
         try:
             comparison_view = pd.read_csv(comparison_path)
@@ -1193,6 +1223,36 @@ def show_prediction():
         st.session_state.pop('_pred_result', None)
         st.session_state['_pred_code'] = selected_code
         st.session_state['_pred_model'] = selected_model
+    current_model_metrics = portfolio_evaluation
+    if (
+        current_model_metrics is None
+        and not comparison_view.empty
+        and '模型' in comparison_view.columns
+    ):
+        model_match = comparison_view[
+            comparison_view['模型'].astype(str).str.contains(
+                'BiLSTM' if selected_model == 'BiLSTM' else 'XGBoost',
+                case=False,
+                na=False,
+            )
+        ]
+        if not model_match.empty:
+            current_row = model_match.iloc[0]
+            current_model_metrics = {
+                'accuracy': current_row.get('Accuracy', 0),
+                'auc': current_row.get('AUC', 0),
+                'precision': current_row.get('Precision', 0),
+                'recall': current_row.get('Recall', 0),
+                'f1': current_row.get('F1', 0),
+            }
+    if current_model_metrics:
+        st.markdown("<div class='section-title'>当前模型核心指标</div>", unsafe_allow_html=True)
+        model_kpis = st.columns(5)
+        model_kpis[0].metric('Accuracy', f"{float(current_model_metrics.get('accuracy', 0)):.2%}")
+        model_kpis[1].metric('AUC', f"{float(current_model_metrics.get('auc', 0)):.4f}")
+        model_kpis[2].metric('Precision', f"{float(current_model_metrics.get('precision', 0)):.2%}")
+        model_kpis[3].metric('Recall', f"{float(current_model_metrics.get('recall', 0)):.2%}")
+        model_kpis[4].metric('F1', f"{float(current_model_metrics.get('f1', 0)):.2%}")
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
     xgb_model_path = _P('results_optimized', 'xgb_fixed.json')
     lstm_model_path = _P('results_optimized', 'lstm_fixed.pth')
@@ -1877,7 +1937,7 @@ def show_backtest():
 
 def show_data_platform():
     """面向数据开发岗位的数据资产、质量和血缘监控首页。"""
-    render_page_header('数据工程 · 数据资产与质量管理', '查看资产目录、研究覆盖、质量状态和公开服务层的当前水位。')
+    render_page_header('数据工程 · 数据资产与质量管理', '从数据采集、质量校验、因子构建到模型验证的完整量化研究流程。')
     manifest = get_manifest()
     asset_summary = get_asset_summary()
     quality_runs = get_quality_runs(limit=1)
@@ -2064,8 +2124,7 @@ def show_data_platform():
             margin=dict(l=30, r=20, t=20, b=30),
             yaxis=dict(gridcolor=colors['grid_color']),
         )
-        with st.expander("查看质量检查图", expanded=False):
-            st.plotly_chart(fig_quality, width='stretch', config={'displayModeBar': False})
+        st.plotly_chart(fig_quality, width='stretch', config={'displayModeBar': False})
         missing_details = report.get('missing_details', {})
         if missing_details:
             category_labels = {
@@ -2153,15 +2212,37 @@ def main():
         st.session_state.username = ''
         st.rerun()
     st.sidebar.markdown("---")
-    st.sidebar.markdown("<div class='sidebar-group'>DATA ENGINEERING</div><div class='section-note'>数据平台 · 数据洞察</div>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div class='sidebar-group'>MARKET ANALYSIS</div><div class='section-note'>市场总览 · 股票画像 · 行业分析 · 情绪分析</div>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div class='sidebar-group'>FACTOR &amp; ML RESEARCH</div><div class='section-note'>因子研究 · 模型验证</div>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div class='sidebar-group'>STRATEGY RESEARCH</div><div class='section-note'>策略回测</div>", unsafe_allow_html=True)
-    st.sidebar.markdown("<div class='sidebar-group'>SYSTEM</div><div class='section-note'>系统概览</div>", unsafe_allow_html=True)
-    st.sidebar.markdown("### 页面导航")
-    pages = [('数据平台', 'platform'), ('市场总览', 'dashboard'), ('股票画像', 'stock_profile'), ('行业分析', 'industry'), ('系统概览', 'overview'), ('数据洞察', 'data_insight'), ('因子研究', 'factor'), ('情绪分析', 'sentiment'), ('模型验证', 'prediction'), ('策略回测', 'backtest')]
-    page_labels = [p[0] for p in pages]
-    page = st.sidebar.radio("页面导航", page_labels, index=0, label_visibility='collapsed', key='main_page')
+    navigation_groups = (
+        ("DATA ENGINEERING", (("数据平台", "platform"), ("数据洞察", "data_insight"))),
+        ("MARKET ANALYSIS", (("市场总览", "dashboard"), ("股票画像", "stock_profile"), ("行业分析", "industry"), ("情绪分析", "sentiment"))),
+        ("FACTOR &amp; ML RESEARCH", (("因子研究", "factor"), ("模型验证", "prediction"))),
+        ("STRATEGY RESEARCH", (("策略回测", "backtest"),)),
+        ("SYSTEM", (("系统概览", "overview"),)),
+    )
+    page_labels = {
+        page_label
+        for _, group_pages in navigation_groups
+        for page_label, _ in group_pages
+    }
+    if st.session_state.get('main_page') not in page_labels:
+        st.session_state.main_page = '数据平台'
+
+    for group_label, group_pages in navigation_groups:
+        st.sidebar.markdown(
+            f"<div class='sidebar-group'>{group_label}</div>",
+            unsafe_allow_html=True,
+        )
+        for page_label, page_key in group_pages:
+            is_active = st.session_state.main_page == page_label
+            marker = "●" if is_active else "○"
+            if st.sidebar.button(
+                f"{marker} {page_label}",
+                key=f"nav_{page_key}",
+                width='stretch',
+            ):
+                st.session_state.main_page = page_label
+
+    page = st.session_state.main_page
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ⭐ 自选股管理")
     if not stock_catalog.empty:
