@@ -339,7 +339,68 @@ PRO_LIGHT_CSS = """<style>
     .page-lead { color: #5D6B7A; font-size: 15px; line-height: 1.65; margin: -8px 0 22px; max-width: 920px; }
     .section-note { color: #6D7E91; font-size: 13px; line-height: 1.6; margin: -4px 0 12px; }
     .interpretation-box { background: #F8FBFC; border: 1px solid #CFE3E7; border-left: 3px solid #168A9A; border-radius: 8px; color: #243448; padding: 13px 16px; line-height: 1.65; margin: 12px 0 18px; }
-    .sidebar-group { color: #168A9A; font-size: 11px; font-weight: 750; letter-spacing: .12em; margin: 16px 0 4px; }
+    .sidebar-group { color: #4B5563 !important; font-size: 12px !important; font-weight: 600 !important; letter-spacing: 1.5px !important; text-transform: uppercase !important; margin: 22px 0 8px !important; background: none !important; }
+    [data-testid="stSidebar"] .st-key-nav_platform button,
+    [data-testid="stSidebar"] .st-key-nav_data_insight button,
+    [data-testid="stSidebar"] .st-key-nav_dashboard button,
+    [data-testid="stSidebar"] .st-key-nav_stock_profile button,
+    [data-testid="stSidebar"] .st-key-nav_industry button,
+    [data-testid="stSidebar"] .st-key-nav_sentiment button,
+    [data-testid="stSidebar"] .st-key-nav_factor button,
+    [data-testid="stSidebar"] .st-key-nav_prediction button,
+    [data-testid="stSidebar"] .st-key-nav_backtest button,
+    [data-testid="stSidebar"] .st-key-nav_overview button { background: #F4F7F9 !important; color: #263746 !important; border: 1px solid #DDE5EA !important; border-radius: 10px !important; font-size: 15px !important; font-weight: 500 !important; min-height: 46px !important; padding: 10px 14px !important; margin-bottom: 8px !important; box-shadow: none !important; text-align: left !important; transition: background-color .15s ease, border-color .15s ease !important; }
+    [data-testid="stSidebar"] .st-key-nav_platform button *,
+    [data-testid="stSidebar"] .st-key-nav_data_insight button *,
+    [data-testid="stSidebar"] .st-key-nav_dashboard button *,
+    [data-testid="stSidebar"] .st-key-nav_stock_profile button *,
+    [data-testid="stSidebar"] .st-key-nav_industry button *,
+    [data-testid="stSidebar"] .st-key-nav_sentiment button *,
+    [data-testid="stSidebar"] .st-key-nav_factor button *,
+    [data-testid="stSidebar"] .st-key-nav_prediction button *,
+    [data-testid="stSidebar"] .st-key-nav_backtest button *,
+    [data-testid="stSidebar"] .st-key-nav_overview button * { color: #263746 !important; font-weight: 500 !important; }
+    [data-testid="stSidebar"] .st-key-nav_platform button:hover,
+    [data-testid="stSidebar"] .st-key-nav_data_insight button:hover,
+    [data-testid="stSidebar"] .st-key-nav_dashboard button:hover,
+    [data-testid="stSidebar"] .st-key-nav_stock_profile button:hover,
+    [data-testid="stSidebar"] .st-key-nav_industry button:hover,
+    [data-testid="stSidebar"] .st-key-nav_sentiment button:hover,
+    [data-testid="stSidebar"] .st-key-nav_factor button:hover,
+    [data-testid="stSidebar"] .st-key-nav_prediction button:hover,
+    [data-testid="stSidebar"] .st-key-nav_backtest button:hover,
+    [data-testid="stSidebar"] .st-key-nav_overview button:hover { background: #E8F0F3 !important; color: #1F3440 !important; border-color: #C8D7DE !important; transform: none !important; box-shadow: none !important; }
+    [data-testid="stSidebar"] .st-key-nav_platform button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_data_insight button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_dashboard button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_stock_profile button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_industry button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_sentiment button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_factor button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_prediction button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_backtest button[data-testid="stBaseButton-primary"],
+    [data-testid="stSidebar"] .st-key-nav_overview button[data-testid="stBaseButton-primary"] { background: #176B7A !important; color: #FFFFFF !important; border: 1px solid #176B7A !important; font-weight: 600 !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important; }
+    [data-testid="stSidebar"] .st-key-nav_platform button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_data_insight button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_dashboard button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_stock_profile button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_industry button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_sentiment button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_factor button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_prediction button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_backtest button[data-testid="stBaseButton-primary"] *,
+    [data-testid="stSidebar"] .st-key-nav_overview button[data-testid="stBaseButton-primary"] * { color: #FFFFFF !important; font-weight: 600 !important; }
+    [data-testid="stSidebar"] .st-key-nav_platform button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_data_insight button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_dashboard button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_stock_profile button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_industry button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_sentiment button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_factor button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_prediction button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_backtest button[data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stSidebar"] .st-key-nav_overview button[data-testid="stBaseButton-primary"]:hover { background: #145D69 !important; color: #FFFFFF !important; border-color: #145D69 !important; }
+    [data-testid="stSidebar"] h3 { border-top: 1px solid #E5E7EB !important; margin-top: 20px !important; padding-top: 18px !important; color: #263746 !important; }
     [data-testid="stSidebar"] hr { margin: 10px 0 !important; border-color: #DDE5EE !important; }
     [data-testid="stExpander"] { background: #FFFFFF !important; border: 1px solid #DDE5EE !important; border-radius: 9px !important; margin: 10px 0 !important; }
     [data-testid="stExpander"] summary { font-weight: 650 !important; color: #1A293D !important; }
@@ -2238,6 +2299,7 @@ def main():
             if st.sidebar.button(
                 f"{marker} {page_label}",
                 key=f"nav_{page_key}",
+                type="primary" if is_active else "secondary",
                 width='stretch',
             ):
                 st.session_state.main_page = page_label

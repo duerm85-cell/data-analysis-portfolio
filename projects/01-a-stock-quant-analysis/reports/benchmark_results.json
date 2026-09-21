@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-09-03T14:40:45.546704+00:00",
+  "generated_at": "2026-09-05T19:48:24.314263+00:00",
   "database": "D:\\2025大三下\\spark\\pythonProject2bishe\\projects\\01-a-stock-quant-analysis\\portfolio_data\\demo_serving.db",
   "database_size_bytes": 47886336,
   "data_version": "v2-db40488c9ed2a80467bb",
-  "repeats": 15,
+  "repeats": 7,
   "coverage": {
     "detail_stock_count": 300,
     "detail_start_date": "2025-09-11",
@@ -22,11 +22,11 @@
         10000
       ],
       "returned_rows": 300,
-      "repeats": 15,
-      "first_run_ms": 2.7019,
-      "median_ms": 0.8469,
-      "min_ms": 0.7298,
-      "max_ms": 2.7019,
+      "repeats": 7,
+      "first_run_ms": 9.7795,
+      "median_ms": 1.8093,
+      "min_ms": 1.568,
+      "max_ms": 9.7795,
       "query_plan": [
         "SEARCH dim_stock USING INDEX idx_stock_has_detail (has_detail=?)"
       ]
@@ -39,11 +39,11 @@
         252
       ],
       "returned_rows": 252,
-      "repeats": 15,
-      "first_run_ms": 1.2242,
-      "median_ms": 0.9287,
-      "min_ms": 0.91,
-      "max_ms": 1.4258,
+      "repeats": 7,
+      "first_run_ms": 4.6439,
+      "median_ms": 3.2123,
+      "min_ms": 2.0303,
+      "max_ms": 8.68,
       "query_plan": [
         "SEARCH fact_stock_daily_demo USING PRIMARY KEY (code=?)"
       ]
@@ -57,11 +57,11 @@
         "2026-08-28"
       ],
       "returned_rows": 252,
-      "repeats": 15,
-      "first_run_ms": 0.9797,
-      "median_ms": 0.975,
-      "min_ms": 0.8947,
-      "max_ms": 1.4328,
+      "repeats": 7,
+      "first_run_ms": 2.0592,
+      "median_ms": 2.2469,
+      "min_ms": 1.5808,
+      "max_ms": 2.8087,
       "query_plan": [
         "SEARCH fact_stock_daily_demo USING PRIMARY KEY (code=? AND date>? AND date<?)"
       ]
@@ -74,11 +74,11 @@
         10000
       ],
       "returned_rows": 300,
-      "repeats": 15,
-      "first_run_ms": 6.6711,
-      "median_ms": 6.1737,
-      "min_ms": 5.7304,
-      "max_ms": 11.0133,
+      "repeats": 7,
+      "first_run_ms": 159.2022,
+      "median_ms": 16.9794,
+      "min_ms": 12.5304,
+      "max_ms": 159.2022,
       "query_plan": [
         "SEARCH f USING INDEX idx_stock_daily_date (date=?)",
         "SEARCH d USING PRIMARY KEY (code=?)",
@@ -94,11 +94,11 @@
         "2026-08-28"
       ],
       "returned_rows": 756,
-      "repeats": 15,
-      "first_run_ms": 2.1288,
-      "median_ms": 2.0926,
-      "min_ms": 1.9188,
-      "max_ms": 3.259,
+      "repeats": 7,
+      "first_run_ms": 6.6643,
+      "median_ms": 4.0585,
+      "min_ms": 3.4363,
+      "max_ms": 6.6643,
       "query_plan": [
         "SEARCH fact_industry_daily USING PRIMARY KEY (industry_l1=? AND date>? AND date<?)"
       ]
