@@ -1,7 +1,7 @@
 # Demo Serving SQLite Schema
 
 `portfolio_data/demo_serving.db` 是公开 Streamlit 应用的只读服务层。它由
-`scripts/build_demo_serving_db.py` 从公开作品集数据包离线生成，不改变本地真实研究流水线、模型训练或回测文件。
+`scripts/build_demo_serving_db.py` 从公开演示数据包离线生成，不改变本地真实研究流水线、模型训练或回测文件。
 
 ## 设计边界
 

@@ -1,4 +1,4 @@
-"""公开作品集运行模式的集中配置。"""
+"""公开演示运行模式的集中配置。"""
 
 import os
 from pathlib import Path
@@ -21,7 +21,7 @@ PORTFOLIO_DAILY_PORTFOLIOS_PATH = PORTFOLIO_DATA_DIR / "portfolio_daily_portfoli
 
 
 def get_app_mode():
-    """返回 local 或 portfolio；云端缺少完整数据时自动使用作品集数据。"""
+    """返回 local 或 portfolio；云端缺少完整数据时自动使用公开演示数据。"""
     configured_mode = os.getenv("QUANT_APP_MODE", "").strip().lower()
     if configured_mode in {"local", "portfolio"}:
         return configured_mode

@@ -8,4 +8,4 @@
 python fetch_stock_data.py
 ```
 
-无 Token 的面试演示可运行 `python scripts/prepare_demo.py`；生成的数据会带有明确的演示来源标签。
+无 Token 的离线演示可运行 `python scripts/prepare_demo.py`；生成的数据会带有明确的演示来源标签。

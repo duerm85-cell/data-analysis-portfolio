@@ -2266,7 +2266,7 @@ def main():
     st.sidebar.title("Quant Data Platform")
     st.sidebar.caption("量化数据开发与研究工作台")
     if PORTFOLIO_MODE:
-        st.sidebar.info("公开作品集模式 · 合成演示行情 · 只读访问")
+        st.sidebar.info("公开演示模式 · 合成演示行情 · 只读访问")
     st.sidebar.markdown(f"用户：**{st.session_state.username}**")
     if require_login and st.sidebar.button("退出登录", width='stretch', key='logout_btn'):
         st.session_state.logged_in = False

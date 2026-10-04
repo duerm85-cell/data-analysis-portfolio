@@ -1,45 +1,80 @@
-# 数据开发 · 量化研究作品集
+# A 股量化研究分析平台
 
-> 数据科学与大数据技术 · Python / SQL / PySpark · 数据质量与分层存储 · 可解释量化研究
+> A-share quantitative research analysis project covering data engineering, feature research, machine-learning validation, executable backtesting, and an interactive Streamlit Dashboard.
 
-## 项目定位
+## Project Overview
 
-本仓库当前主要作品是 [A 股量化数据工程与研究分析平台](projects/01-a-stock-quant-analysis/)：从行情接入、数据清洗、质量校验、因子加工和 SQLite 服务，到统一模型实验、可执行时序回测与 Streamlit 展示。作品集强调可复现流程和诚实研究结论，不把模型包装成盈利系统。
+本项目构建了一条面向 A 股日频研究的数据链路：采集并清洗行情数据，执行质量校验，生成技术因子，通过时间序列切分验证 XGBoost 与 BiLSTM 分类模型，再使用 `next_open_v2` 回测检验样本外信号在交易成本和可执行时序下的表现。
+
+项目源码位于 [`projects/01-a-stock-quant-analysis/`](projects/01-a-stock-quant-analysis/)。研究目标是保证数据、实验和结果可追溯，不以收益率或高指标作为项目成立的前提。
 
 ## Live Demo
 
 **在线演示：<https://a-stock-quant-data-platform.streamlit.app/>**
 
-公开网站使用确定性合成数据和本地真实研究结果的脱敏摘要，无需 Tushare Token，也不执行在线训练或实盘交易。
+Public Demo Mode 使用固定随机种子生成的合成行情和本地研究结果的脱敏摘要。在线页面不读取真实逐日行情、不执行在线训练，也不提供交易执行能力。
 
-## Architecture
+Streamlit 入口文件：
+
+```text
+projects/01-a-stock-quant-analysis/app_pro.py
+```
+
+## Features
+
+- **Data Engineering**：Tushare 数据接入、Raw/Clean/Processed 分层、质量规则和 SQLite 服务层。
+- **Feature Research**：21 个正式技术因子、因子走势、相关性和 IC 分析。
+- **Machine Learning**：XGBoost 与 BiLSTM 的下一交易日涨跌分类实验，统一股票池、特征和时间边界。
+- **Backtesting**：T 日收盘形成信号、T+1 开盘执行，计入佣金、印花税和滑点。
+- **Dashboard**：10 个 Streamlit 页面，覆盖数据质量、市场分析、因子、模型和策略研究。
+- **Quality Assurance**：单元测试、数据链路测试、10 页 Streamlit smoke test 和 GitHub Actions CI。
+
+## System Architecture
 
 ```mermaid
 flowchart LR
-    A[真实行情与基准] --> B[Raw]
+    A[Tushare / AKShare 行情] --> B[Raw]
     B --> C[Clean + Data Quality]
     C --> D[Processed Factors]
     D --> E[XGBoost / BiLSTM]
     E --> F[next_open_v2 Backtest]
     D --> G[(Local SQLite)]
 
-    H[确定性合成公开数据] --> I[(Demo SQLite)]
-    I --> J[Streamlit]
-    E -. 脱敏指标 .-> J
-    F -. 脱敏净值 .-> J
-    C -. 可选批处理 .-> K[PySpark]
+    H[Deterministic Synthetic Data] --> I[(Demo SQLite)]
+    I --> J[Streamlit Dashboard]
+    E -. Metrics Snapshot .-> J
+    F -. Backtest Snapshot .-> J
+    C -. Optional Batch Processing .-> K[PySpark]
 ```
 
-## Current Research Results
+## Data Description
 
-以下数字是当前唯一正式结果，来自同一次 Phase 3 实验。
+| 数据范围 | 内容 | 用途 |
+|---|---|---|
+| 本地研究数据 | 364 只股票、562,789 条因子记录的验收快照 | 因子研究、模型训练和回测 |
+| Public Demo 数据 | 5,200 个合成资产目录、300 个合成资产明细及预聚合 | 页面查询、部署和可重复演示 |
+| 模型与回测摘要 | 本地研究结果的脱敏指标、重要性和归一化净值 | 公开展示当前研究结论 |
+
+Public Demo 中的 5,200 个资产是确定性合成标识，不是 5,200 只真实股票行情。真实原始行情、完整研究数据库、模型权重、逐样本预测和逐日持仓不进入 Git。
+
+## Feature Engineering
+
+正式模型输入由 21 个技术因子组成，覆盖收益与价格关系、均线、动量、反转、波动率、布林带、成交量和成交额。XGBoost 与 BiLSTM 使用相同特征集合。字段定义见 [`docs/FEATURE_DEFINITION.md`](docs/FEATURE_DEFINITION.md)。
+
+## Model
+
+任务统一为预测下一交易日涨跌方向。训练、验证和测试采用按时间排序的 70%/15%/15% 切分，并剔除跨分区引用下一日标签的边界信号日。
 
 | 模型 | Accuracy | AUC | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|---:|
 | XGBoost | 52.71% | 0.5276 | 49.06% | 42.43% | 45.50% |
 | BiLSTM | 51.43% | 0.5185 | 47.83% | 48.22% | 48.03% |
 
-| `next_open_v2` 指标 | 结果 |
+## Backtesting
+
+`next_open_v2` 在 T 日收盘后生成信号，在 T+1 开盘执行调仓。成本模型包含买卖双边 0.03% 佣金、卖出单边 0.05% 印花税和买卖各 0.10% 固定滑点。
+
+| 指标 | 结果 |
 |---|---:|
 | 策略收益 | -28.31% |
 | 沪深 300 | +2.18% |
@@ -49,66 +84,79 @@ flowchart LR
 | 平均换手率 | 77.95% |
 | 成交 / 缺少开盘价阻塞 | 4,042 / 1 笔 |
 
-两个模型的 AUC 都接近 0.5，没有证明稳定预测能力。策略没有获得超额收益，结果不构成投资建议。
+当前模型只表现出较弱的样本外统计信号，策略没有获得超额收益。
 
-## Data Scope
+## Limitations
 
-| 口径 | 范围 | 用途 |
-|---|---|---|
-| 本地真实研究数据 | 364 只股票、562,789 条因子记录的验收快照 | 因子、模型和回测研究 |
-| 公开 Demo 数据 | 5,200 个合成资产目录、300 个合成资产明细和预聚合 | 页面体验、查询和部署 |
-| 模型与回测快照 | 本地真实研究结果的脱敏指标、重要性和归一化净值 | 公开展示当前研究结论 |
-
-公开 Demo 的 5,200 个资产是固定随机种子生成的合成标识，不是 5,200 只真实股票行情。真实原始行情、研究数据库、模型权重、逐行预测和持仓不会提交。
-
-## Engineering Highlights
-
-- Raw → Clean → Processed → Serving 分层数据流和来源记录。
-- 重复键、缺失、OHLC、价格和成交量质量检查。
-- SQLite 唯一约束、事务化分块 upsert、索引和参数化查询。
-- XGBoost 与 BiLSTM 使用统一任务、特征、时间边界和完整测试目标。
-- T 日收盘信号、T+1 开盘调仓、真实基准、费用、滑点和订单阻塞统计。
-- 确定性 Demo、公开只读服务库、十页 Streamlit 烟雾测试和 GitHub Actions CI。
-- PySpark 清洗、窗口因子、分区 Parquet 与 Spark SQL 的可选批处理链路。
-
-## Research Limitations
-
-- 股票池历史变化、退市样本、复权口径、停牌和逐日涨跌停字段仍不完整。
+- 股票池历史变化、退市样本、复权口径、停牌和逐日涨跌停状态仍不完整。
 - 固定滑点不能完整模拟盘口、成交量约束和市场冲击。
-- 来源未验证的情绪数据被排除，不能声称情绪因子提高了模型表现。
-- PySpark 当前是批处理实现，不是生产 Spark 集群。
-- 当前没有 Kafka、Flink 或 Airflow 生产链路。
-- SQLite 与 Streamlit 服务不能描述为生产级量化交易系统。
-- 项目不是 AI 交易机器人，不保证收益。
+- 来源未验证的情绪数据被排除，当前结果不能证明情绪因子有效。
+- PySpark 是可选批处理实现，不代表生产 Spark 集群运行。
+- SQLite 与 Streamlit 面向单机研究和只读演示，不提供生产交易基础设施。
+- 所有结果仅用于研究分析，不构成投资建议或收益承诺。
+
+## Installation and Usage
+
+### Public Demo Mode
+
+无需数据源 Token：
+
+```powershell
+cd projects/01-a-stock-quant-analysis
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python scripts/prepare_demo.py
+python -m streamlit run app_pro.py
+```
+
+### Local Research Workflow
+
+真实研究链路需要数据采集和模型依赖：
+
+```powershell
+cd projects/01-a-stock-quant-analysis
+python -m pip install -r requirements-model.txt
+$env:TUSHARE_TOKEN = "your-token"
+python fetch_stock_data.py
+python fetch_sentiment.py --mode real
+python data_preprocessing.py
+python factor_engineering_with_sentiment.py
+python model_training.py
+python backtest.py
+```
 
 ## Testing
 
-当前本地验收：
+```powershell
+cd projects/01-a-stock-quant-analysis
+python -m pip install -r requirements-test.txt
+python -m compileall -q -x "archive([\\/]|$)" .
+python -m pytest -q
+$env:QUANT_APP_MODE = "portfolio"
+python scripts/smoke_test_app.py
+```
 
-- Python 语法检查通过；
-- `compileall` 通过；
-- 26 项测试和 5 项参数化子测试通过；
-- 10 个现有 Streamlit 页面通过公开模式烟雾测试。
+CI 工作流位于 [`.github/workflows/quality.yml`](.github/workflows/quality.yml)，覆盖 Python 3.10 和 3.11。
 
-验证命令、运行方式、完整架构和结果解释见 [项目 README](projects/01-a-stock-quant-analysis/README.md)。
+## Repository Structure
 
-## About Me
-
-我是一名数据科学与大数据技术专业本科毕业生，主要学习与实践方向是数据处理、数据库应用和量化数据分析。项目中的代码、数据链路、研究流程和展示由本人独立完成并持续整理。
-
-## Skills
-
-- **Programming:** Python、Pandas、NumPy
-- **Database / SQL:** MySQL 课程学习、SQLite 项目实践、参数化查询、唯一约束、增量 Upsert、分析 SQL
-- **Data Engineering:** 数据分层、质量校验、PySpark、Parquet、批处理
-- **Quant Research:** Tushare、AKShare、技术因子、样本外模型验证、含成本回测
-- **Visualization:** Streamlit、Plotly、Matplotlib
-- **Machine Learning:** Scikit-learn、XGBoost、PyTorch BiLSTM
-- **Development:** Git、GitHub Actions、Linux、VS Code
-
-## Career Goal
-
-目标岗位包括量化数据开发、数据开发、数据分析和 Python 数据方向。面试时重点讲解数据来源、质量规则、服务层设计、时间序列隔离、回测执行口径，以及为什么当前弱结果不能被解释为交易优势。
+```text
+.
+├── README.md
+├── docs/                              # 技术说明和历史记录
+├── .github/workflows/quality.yml
+└── projects/01-a-stock-quant-analysis/
+    ├── app_pro.py                     # Streamlit Dashboard
+    ├── app/                           # 数据访问与分析模块
+    ├── scripts/                       # Demo、建库、基准和 smoke test
+    ├── tests/                         # 单元与链路测试
+    ├── portfolio_data/                # 合成 Demo 与脱敏结果
+    ├── reports/                       # 当前实验和性能摘要
+    ├── model_training.py
+    ├── backtest.py
+    └── README.md                      # 完整项目技术说明
+```
 
 ## License
 

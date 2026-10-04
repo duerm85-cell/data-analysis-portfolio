@@ -500,7 +500,7 @@ def build_portfolio_v2_dataset(
         "mode": "portfolio_synthetic_demo",
         "generated_at": _utc_now(),
         "source_layer": "确定性合成目录、分层明细与离线预聚合",
-        "source_label": "公开作品集 · 全市场规模合成分析快照",
+        "source_label": "公开演示 · 全市场规模合成分析快照",
         "selection": selection_rule,
         "random_seed": seed,
         "asset_catalog_stock_count": int(len(catalog)),
@@ -554,7 +554,7 @@ def build_portfolio_v2_dataset(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="生成公开作品集 V2 三层数据包")
+    parser = argparse.ArgumentParser(description="生成公开演示 V2 三层数据包")
     parser.add_argument("--assets", type=int, default=DEFAULT_ASSET_COUNT)
     parser.add_argument("--details", type=int, default=DEFAULT_DETAIL_COUNT)
     parser.add_argument("--detail-years", type=int, default=DEFAULT_DETAIL_YEARS)

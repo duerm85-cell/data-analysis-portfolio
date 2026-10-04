@@ -3,7 +3,7 @@
   "mode": "portfolio_synthetic_demo",
   "generated_at": "2026-09-03T07:13:56.402722+00:00",
   "source_layer": "确定性合成目录、分层明细与离线预聚合",
-  "source_label": "公开作品集 · 全市场规模合成分析快照",
+  "source_label": "公开演示 · 全市场规模合成分析快照",
   "selection": "固定随机种子 20260903；按一级行业×上市板块比例分层抽样，每个非空分层至少 1 只，共 300 只；仅生成最近 1 年明细。",
   "random_seed": 20260903,
   "asset_catalog_stock_count": 5200,

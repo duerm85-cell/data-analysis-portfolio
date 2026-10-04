@@ -16,6 +16,14 @@ DEFAULT_DATABASE = PROJECT_DIR / "portfolio_data" / "demo_serving.db"
 DEFAULT_OUTPUT = PROJECT_DIR / "reports" / "benchmark_results.json"
 
 
+def _database_label(database_path: Path) -> str:
+    """Return a repository-relative label instead of a machine-specific path."""
+    try:
+        return database_path.resolve().relative_to(PROJECT_DIR.resolve()).as_posix()
+    except ValueError:
+        return database_path.name
+
+
 QUERIES = {
     "stock_catalog": """
         SELECT code, name, market, board, industry_l1, has_detail
@@ -178,10 +186,14 @@ def run_benchmarks(database_path: Path, repeats: int = 7) -> dict:
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "database": str(database_path),
+        "database": _database_label(database_path),
         "database_size_bytes": database_path.stat().st_size,
         "data_version": context["data_version"],
         "repeats": repeats,
+        "benchmark_note": (
+            f"本机 SQLite Demo benchmark；每项查询重复 {repeats} 次；"
+            "用于单机相对性能参考，不代表网络或生产环境性能。"
+        ),
         "coverage": {
             "detail_stock_count": context["detail_stock_count"],
             "detail_start_date": context["detail_start_date"],

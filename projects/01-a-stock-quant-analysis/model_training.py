@@ -671,7 +671,7 @@ def train_lstm_model():
     train_sequences_total = len(X_train)
     validation_sequences_total = len(X_validation)
     test_sequences_total = len(X_test)
-    # 训练集按全区间等距抽取，保证普通面试笔记本可复现；验证和测试使用全部可用目标。
+    # 训练集按全区间等距抽取，保证普通开发笔记本可复现；验证和测试使用全部可用目标。
     X_train, y_train_ts = cap_sequences(X_train, y_train_ts, 120_000)
     print(
         f"训练数据: {X_train.shape}, 验证数据: {X_validation.shape}, "

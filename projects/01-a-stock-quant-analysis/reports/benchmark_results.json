@@ -1,9 +1,10 @@
 {
   "generated_at": "2026-09-05T19:48:24.314263+00:00",
-  "database": "D:\\2025大三下\\spark\\pythonProject2bishe\\projects\\01-a-stock-quant-analysis\\portfolio_data\\demo_serving.db",
+  "database": "portfolio_data/demo_serving.db",
   "database_size_bytes": 47886336,
   "data_version": "v2-db40488c9ed2a80467bb",
   "repeats": 7,
+  "benchmark_note": "本机 SQLite Demo benchmark；每项查询重复 7 次；用于单机相对性能参考，不代表网络或生产环境性能。",
   "coverage": {
     "detail_stock_count": 300,
     "detail_start_date": "2025-09-11",

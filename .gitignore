@@ -1,4 +1,4 @@
-# ========== Portfolio 顶层 .gitignore ==========
+# ========== 项目顶层 .gitignore ==========
 # 把项目子目录里应该忽略的内容统一在这里 + 子目录的 .gitignore 双重保护
 
 # Python
@@ -62,7 +62,7 @@ projects/01-a-stock-quant-analysis/reports/**
 *.tmp
 *.bak
 
-# 本地作品集、渲染和交接产物（不属于项目运行链路）
+# 本地发布、渲染和交接产物（不属于项目运行链路）
 /artifacts/
 /output/
 /tmp/

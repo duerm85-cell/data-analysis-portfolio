@@ -120,7 +120,7 @@ def build_portfolio_dataset(stock_limit=50, years=3, project_dir=PROJECT_DIR):
 
     public_frame = frame.sort_values(["code", "date"]).reset_index(drop=True)
     if public_frame.empty:
-        raise ValueError("筛选结果为空，无法生成作品集数据包。")
+        raise ValueError("筛选结果为空，无法生成公开演示数据包。")
 
     sentiment_columns = [
         column for column in [
@@ -181,7 +181,7 @@ def build_portfolio_dataset(stock_limit=50, years=3, project_dir=PROJECT_DIR):
         "mode": "portfolio_synthetic_demo",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source_layer": "确定性随机种子生成器",
-        "source_label": "公开作品集 · 确定性合成演示行情",
+        "source_label": "公开演示 · 确定性合成行情",
         "selection": "按沪深主板、创业板和科创板比例生成演示代码",
         "stock_limit": stock_limit,
         "years": years,
@@ -202,7 +202,7 @@ def build_portfolio_dataset(stock_limit=50, years=3, project_dir=PROJECT_DIR):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="生成公开作品集轻量合成数据包")
+    parser = argparse.ArgumentParser(description="生成公开演示轻量合成数据包")
     parser.add_argument("--stocks", type=int, default=50, help="展示股票数量")
     parser.add_argument("--years", type=int, default=3, help="展示最近多少年")
     args = parser.parse_args()

@@ -255,6 +255,6 @@ def render_stock_profile() -> None:
             st.plotly_chart(peer_figure, width="stretch", key="stock_profile_peers")
 
     st.caption(
-        "公开作品集页面使用固定种子生成的合成演示行情；"
+        "公开演示页面使用固定种子生成的合成演示行情；"
         "指标只用于展示按需查询和分析能力，不构成投资建议。"
     )

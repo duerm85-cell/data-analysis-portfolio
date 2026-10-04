@@ -509,7 +509,7 @@ def build_demo_serving_db(
     data_version = f"v2-{source_hash[:20]}"
     started_at = _utc_now()
     source_label = str(
-        manifest.get("source_label", "公开作品集 · 确定性合成演示行情")
+        manifest.get("source_label", "公开演示 · 确定性合成行情")
     )
 
     frame = _normalise_source(pd.read_parquet(source_path))
