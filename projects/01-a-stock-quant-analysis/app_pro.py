@@ -1241,7 +1241,29 @@ def show_prediction():
         )
     comparison_path = _P('reports', 'model_comparison.csv')
     comparison_view = pd.DataFrame()
-    if os.path.exists(comparison_path):
+    comparison_source = None
+    if os.path.exists(training_log_path):
+        try:
+            with open(training_log_path, 'r', encoding='utf-8') as file:
+                saved_metrics = json.load(file)
+            comparison_view = pd.DataFrame([
+                {
+                    '模型': display_name,
+                    'AUC': saved_metrics[log_name]['auc'],
+                    'Accuracy': saved_metrics[log_name]['accuracy'],
+                    'Precision': saved_metrics[log_name]['precision'],
+                    'Recall': saved_metrics[log_name]['recall'],
+                    'F1': saved_metrics[log_name]['f1'],
+                }
+                for log_name, display_name in (
+                    ('XGBoost', 'XGBoost'),
+                    ('LSTM', 'BiLSTM'),
+                )
+            ])
+            comparison_source = os.path.relpath(training_log_path, BASE_DIR)
+        except (OSError, ValueError, TypeError, KeyError):
+            comparison_view = pd.DataFrame()
+    if comparison_view.empty and os.path.exists(comparison_path):
         try:
             comparison_view = pd.read_csv(comparison_path)
             comparison_view = comparison_view.rename(columns={
@@ -1249,14 +1271,35 @@ def show_prediction():
                 'features': '特征', 'auc': 'AUC', 'accuracy': 'Accuracy',
                 'precision': 'Precision', 'recall': 'Recall', 'f1': 'F1',
             })
-            st.markdown("<div class='section-title'>模型对比</div>", unsafe_allow_html=True)
-            st.dataframe(
-                comparison_view[['模型', '任务', '数据切分', '特征', 'AUC', 'Accuracy', 'Precision', 'Recall', 'F1']],
-                width='stretch', hide_index=True,
-            )
-            st.caption('数据来源：reports/model_comparison.csv；两模型共享股票池、特征和测试区间。')
+            comparison_source = 'reports/model_comparison.csv'
         except (OSError, ValueError, KeyError):
-            st.info('当前模型对比表暂不可用。')
+            comparison_view = pd.DataFrame()
+    if comparison_view.empty:
+        comparison_view = pd.DataFrame([
+            {'模型': 'XGBoost', 'AUC': 0.5276, 'Accuracy': 0.5271,
+             'Precision': 0.4906, 'Recall': 0.4243, 'F1': 0.4550},
+            {'模型': 'BiLSTM', 'AUC': 0.5185, 'Accuracy': 0.5143,
+             'Precision': 0.4783, 'Recall': 0.4822, 'F1': 0.4803},
+        ])
+        comparison_source = 'README 已确认实验结果（静态回退）'
+
+    performance_view = comparison_view[
+        ['模型', 'AUC', 'Accuracy', 'Precision', 'Recall', 'F1']
+    ].copy()
+    performance_view['AUC'] = performance_view['AUC'].map(lambda value: f'{float(value):.4f}')
+    for metric in ('Accuracy', 'Precision', 'Recall', 'F1'):
+        performance_view[metric] = performance_view[metric].map(
+            lambda value: f'{float(value):.2%}'
+        )
+    st.markdown("<div class='section-title'>模型性能评估</div>", unsafe_allow_html=True)
+    st.dataframe(performance_view, width='stretch', hide_index=True)
+    st.markdown(
+        '当前模型用于验证机器学习方法在A股日频数据预测任务中的有效性。'
+        '测试结果显示模型略高于随机水平，但未证明具有稳定预测能力。'
+    )
+    st.caption(
+        f'数据来源：{comparison_source}；两模型共享股票池、21个技术因子和测试区间。'
+    )
     stock_codes = stock_catalog['code'].tolist()
     watchlist = st.session_state.get('watchlist', [])
     priority_codes = [c for c in watchlist if c in stock_codes]
