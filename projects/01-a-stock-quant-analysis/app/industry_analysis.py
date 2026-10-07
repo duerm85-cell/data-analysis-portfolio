@@ -53,7 +53,7 @@ def _build_industry_metrics(history: pd.DataFrame) -> pd.DataFrame:
 
 def render_industry_analysis() -> None:
     st.markdown("<div class='page-eyebrow'>MARKET AGGREGATE</div>", unsafe_allow_html=True)
-    st.markdown("<div class='main-title'>行业分析 · 板块表现比较</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-title'>Industry Analysis · Sector Comparison</div>", unsafe_allow_html=True)
     st.markdown("<div class='page-lead'>基于行业日聚合数据查看行业数量、近期收益排名、上涨下跌结构和成交变化。</div>", unsafe_allow_html=True)
     st.caption(
         "分析汇总层：仅查询近期行业预聚合结果，"

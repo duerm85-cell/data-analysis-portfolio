@@ -34,6 +34,29 @@ env/
 *.log
 logs/
 
+# 本地凭证与环境变量（仅提交示例文件）
+.env
+.env.*
+!.env.example
+
+# 本地模型权重、检查点与序列化对象
+*.ckpt
+*.pt
+*.pth
+*.pkl
+*.pickle
+*.joblib
+**/checkpoints/
+**/models/
+
+# 本地数据库与工具缓存（公开 Demo 数据库已被 Git 显式跟踪）
+*.db
+!projects/01-a-stock-quant-analysis/portfolio_data/demo_serving.db
+*.sqlite
+*.sqlite3
+.cache/
+**/.cache/
+
 # 量化项目生成物（数据、模型和回测结果由流水线本地生成）
 projects/01-a-stock-quant-analysis/data/raw/**
 !projects/01-a-stock-quant-analysis/data/raw/README.md

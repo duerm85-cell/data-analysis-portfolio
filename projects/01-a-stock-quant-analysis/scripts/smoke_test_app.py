@@ -156,6 +156,13 @@ def main():
         else:
             app = target.click().run(timeout=APP_TIMEOUT_SECONDS)
             page_failures.extend(_validate_page_specific_constraints(app, page_name))
+            updated_navigation = _navigation_buttons(app)
+            updated_target = updated_navigation.get(button_key)
+            if updated_target is None or updated_target.label != f"● {page_name}":
+                actual_label = getattr(updated_target, "label", None)
+                page_failures.append(
+                    f"{page_name}: 单次点击后 active 标记未同步，实际为 {actual_label!r}"
+                )
             try:
                 current_page = app.session_state["main_page"]
             except KeyError:

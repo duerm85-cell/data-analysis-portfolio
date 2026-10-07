@@ -167,7 +167,7 @@ def db_get_user(username):
 
 
 st.set_page_config(
-    page_title='A股量化数据工程平台',
+    page_title='Machine Learning Quantitative Research Platform',
     page_icon='📈',
     layout='wide',
     initial_sidebar_state='expanded'
@@ -433,7 +433,7 @@ def get_theme_colors(_theme=None):
     }
 
 
-def render_page_header(title, description, eyebrow='QUANT DATA PLATFORM'):
+def render_page_header(title, description, eyebrow='ML QUANT RESEARCH PLATFORM'):
     """统一页面标题、定位和首屏说明，只负责展示。"""
     st.markdown(f"<div class='page-eyebrow'>{eyebrow}</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='main-title'>{title}</div>", unsafe_allow_html=True)
@@ -464,7 +464,7 @@ def show_login_page():
                 <span style='font-size: 80px;'>📈</span>
             </div>
             <h1 style='font-size: 48px; font-weight: 900; margin-top: 20px;'>
-                <span style='background: linear-gradient(90deg, #6C63FF, #FF6B9D, #40FF80, #6C63FF); background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: gradient-shift 4s ease infinite;'>A股量化数据工程平台</span>
+                <span style='background: linear-gradient(90deg, #6C63FF, #FF6B9D, #40FF80, #6C63FF); background-size: 300% 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: gradient-shift 4s ease infinite;'>ML Quant Research Platform</span>
             </h1>
             <p style='font-size: 18px; margin-top: 15px; opacity: 0.8;'>请登录以访问系统功能</p>
         </div>
@@ -552,7 +552,7 @@ def classify_board(code):
 
 def show_system_overview():
     theme = st.session_state.get('theme', 'dark')
-    render_page_header('量化研究系统 · Pipeline Overview', '沿着数据、清洗、特征、模型、回测到 Dashboard 的链路查看运行状态。')
+    render_page_header('System Overview · Research Pipeline', '沿着数据、清洗、特征、模型、回测到 Dashboard 的链路查看运行状态。')
     asset_summary = get_asset_summary()
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
     if not asset_summary:
@@ -743,7 +743,7 @@ def show_system_overview():
 
 
 def show_data_insight():
-    render_page_header('数据分析 · 市场结构洞察', '从既有聚合数据中查看市场结构、价格趋势、成交和情绪的客观变化。')
+    render_page_header('Data Insights · Market Structure', '从既有聚合数据中查看市场结构、价格趋势、成交和情绪的客观变化。')
     stock_catalog = get_stock_catalog(has_detail=True)
     market_summary = get_market_summary()
     theme = st.session_state.get('theme', 'dark')
@@ -808,7 +808,7 @@ def show_data_insight():
 
 
 def show_factor_analysis():
-    render_page_header('因子研究 · 21个技术因子体系', '查看正式模型使用的 21 个技术因子分类、代表性走势和相关性诊断。')
+    render_page_header('Factor Research · 21 Technical Features', '查看正式模型使用的 21 个技术因子分类、代表性走势和相关性诊断。')
     stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
@@ -921,7 +921,7 @@ def show_factor_analysis():
 
 
 def show_sentiment_analysis():
-    render_page_header('情绪分析', '查看现有情绪字段的水平、波动与收益并列关系；来源状态保留在详细信息中。')
+    render_page_header('Sentiment Analysis · Data Diagnostics', '查看现有情绪字段的水平、波动与收益并列关系；来源状态保留在详细信息中。')
     stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
@@ -1222,7 +1222,7 @@ def _predict_lstm(df_all, lstm_model_path, selected_code=None):
 
 
 def show_prediction():
-    render_page_header('机器学习模型验证', '统一比较 XGBoost 与 BiLSTM 对下一交易日涨跌的样本外分类结果。')
+    render_page_header('Model Validation · XGBoost and BiLSTM', '统一比较 XGBoost 与 BiLSTM 对下一交易日涨跌的样本外分类结果。')
     stock_catalog = get_stock_catalog(has_detail=True)
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
@@ -1502,7 +1502,7 @@ def show_prediction():
 def show_dashboard():
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
-    render_page_header('市场分析 · 全市场状态概览', '用最新批处理快照快速判断市场覆盖、涨跌结构和成交规模。')
+    render_page_header('Market Overview · Cross-Sectional Snapshot', '用最新批处理快照快速判断市场覆盖、涨跌结构和成交规模。')
     manifest = get_manifest()
     asset_summary = get_asset_summary()
     df_latest = get_market_snapshot(manifest.get('end_date'), limit=2000)
@@ -1795,7 +1795,7 @@ def _load_backtest_results():
 
 
 def show_backtest():
-    render_page_header('策略研究 · 回测评价', '查看 `next_open_v2` 的可执行时序、策略与沪深 300 基准表现，以及交易成本和阻塞原因。')
+    render_page_header('Strategy Research · Cost-Aware Backtest', '查看 `next_open_v2` 的可执行时序、策略与沪深 300 基准表现，以及交易成本和阻塞原因。')
     theme = st.session_state.get('theme', 'dark')
     colors = get_theme_colors('深色主题' if theme == 'dark' else theme)
 
@@ -1998,7 +1998,7 @@ def show_backtest():
 
 def show_data_platform():
     """面向数据开发岗位的数据资产、质量和血缘监控首页。"""
-    render_page_header('数据工程 · 数据资产与质量管理', '从数据采集、质量校验、因子构建到模型验证的完整量化研究流程。')
+    render_page_header('Data Platform · Assets and Quality', '从数据采集、质量校验、因子构建到模型验证的完整量化研究流程。')
     manifest = get_manifest()
     asset_summary = get_asset_summary()
     quality_runs = get_quality_runs(limit=1)
@@ -2008,6 +2008,17 @@ def show_data_platform():
             "尚未发现可用服务库。运行 `python scripts/build_demo_serving_db.py` 可重建公开 SQLite 服务层。"
         )
         return
+    dataset_mode = 'Demo · deterministic synthetic data' if PORTFOLIO_MODE else 'Research · local market data'
+    st.markdown("### Project Overview")
+    st.caption(
+        "End-to-end workflow for data quality, technical features, model validation, "
+        "and transaction-cost-aware backtesting."
+    )
+    st.info(
+        f"**Pipeline Status:** Ready  ·  **Dataset Mode:** {dataset_mode}  ·  "
+        "**Purpose:** Research and engineering evaluation"
+    )
+    st.caption("Research purpose only. No investment advice.")
     quality_row = quality_runs.iloc[0]
     structural_factor_count = int(
         quality_issues.loc[
@@ -2229,6 +2240,11 @@ def show_data_platform():
             st.caption("情绪字段来自历史产物，来源尚未核验，不作为真实新闻情绪结论。")
 
 
+def _set_main_page(page_label):
+    """在 Streamlit 重跑前同步导航状态，保证内容与 active 标记一致。"""
+    st.session_state.main_page = page_label
+
+
 def main():
     require_login = (
         os.environ.get('QUANT_REQUIRE_LOGIN', '0') == '1'
@@ -2263,8 +2279,8 @@ def main():
         st.error("SQLite 服务层没有可展示的数据。")
         return
 
-    st.sidebar.title("Quant Data Platform")
-    st.sidebar.caption("量化数据开发与研究工作台")
+    st.sidebar.title("ML Quant Research Platform")
+    st.sidebar.caption("Data · Factors · Models · Backtesting")
     if PORTFOLIO_MODE:
         st.sidebar.info("公开演示模式 · 合成演示行情 · 只读访问")
     st.sidebar.markdown(f"用户：**{st.session_state.username}**")
@@ -2296,13 +2312,14 @@ def main():
         for page_label, page_key in group_pages:
             is_active = st.session_state.main_page == page_label
             marker = "●" if is_active else "○"
-            if st.sidebar.button(
+            st.sidebar.button(
                 f"{marker} {page_label}",
                 key=f"nav_{page_key}",
                 type="primary" if is_active else "secondary",
                 width='stretch',
-            ):
-                st.session_state.main_page = page_label
+                on_click=_set_main_page,
+                args=(page_label,),
+            )
 
     page = st.session_state.main_page
     st.sidebar.markdown("---")
@@ -2345,7 +2362,7 @@ def main():
                         f"<span style='font-size:12px;color:{color};'>{arrow}{abs(chg):.2f}%</span></div>",
                         unsafe_allow_html=True)
     st.sidebar.markdown("---")
-    st.sidebar.markdown("A股量化数据工程平台 · 仅供研究，不构成投资建议")
+    st.sidebar.markdown("Research purpose only. No investment advice.")
 
     if page == "数据平台":
         show_data_platform()

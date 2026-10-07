@@ -81,7 +81,7 @@ def _format_money(value: float) -> str:
 
 def render_stock_profile() -> None:
     st.markdown("<div class='page-eyebrow'>MARKET DETAIL</div>", unsafe_allow_html=True)
-    st.markdown("<div class='main-title'>股票画像 · 个股分析</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-title'>Stock Profile · Security-Level Analysis</div>", unsafe_allow_html=True)
     st.markdown("<div class='page-lead'>按需查看单只股票的基本信息、价格、风险和行业相对位置；页面不会扫描全市场明细。</div>", unsafe_allow_html=True)
 
     catalog = get_stock_catalog(has_detail=True, limit=1000)

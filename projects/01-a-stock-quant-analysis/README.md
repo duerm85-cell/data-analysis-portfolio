@@ -1,4 +1,6 @@
-# A 股量化数据工程与研究分析平台
+# A股机器学习量化研究平台
+
+> Machine Learning Quantitative Research Platform
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PySpark](https://img.shields.io/badge/PySpark-optional-E25A1C?logo=apachespark&logoColor=white)
@@ -9,6 +11,8 @@
 这是一个 A-share quantitative research analysis project。项目把数据工程、因子研究、机器学习验证、策略回测和 Streamlit Dashboard 串成一条可追溯的研究流程：先完成行情数据的分层处理和质量校验，再构建技术因子，使用 XGBoost 与 BiLSTM 验证下一交易日涨跌方向，最后用符合交易时序的 `next_open_v2` 回测检验信号能否转化为可执行结果。
 
 项目重点是解释研究过程和边界，而不是包装收益率。模型指标接近随机基线，回测结果为负，这些结果会在 Dashboard 和文档中如实展示，用于说明数据口径、实验设计、交易成本和失败原因。
+
+配套文档：[`DATA_SOURCE.md`](../../docs/DATA_SOURCE.md) 说明 Demo/Research 数据边界；[`PROJECT_DESIGN.md`](../../docs/PROJECT_DESIGN.md) 说明研究问题和设计取舍；[`FEATURE_DEFINITION.md`](../../docs/FEATURE_DEFINITION.md) 说明 24/21/17 三套字段口径。
 
 ## 项目定位
 
