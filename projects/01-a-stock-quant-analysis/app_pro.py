@@ -886,34 +886,63 @@ def show_factor_analysis():
         if all_factor_names:
             selected_ic_factors = st.multiselect("选择因子（1~5个）", all_factor_names, max_selections=5, key='ic_factor_select')
             if selected_ic_factors:
-                min_date = factor_ic_catalog['date'].min().date()
-                max_date = factor_ic_catalog['date'].max().date()
-                default_start = (max_date - timedelta(days=365)) if (max_date - timedelta(days=365)) >= min_date else min_date
-                date_range = st.slider("选择分析日期区间", min_value=min_date, max_value=max_date, value=(default_start, max_date), key='ic_date_range')
-                queried_ic = get_factor_ic(
-                    selected_ic_factors,
-                    start_date=date_range[0],
-                    end_date=date_range[1],
-                )
-                ic_results = {
-                    factor_name: group.rename(columns={'ic': 'IC'})
-                    for factor_name, group in queried_ic.groupby('factor_name')
-                    if group['ic'].notna().any()
-                }
-                if ic_results:
-                    color_palette = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
-                    for idx, (factor_name, ic_df) in enumerate(ic_results.items()):
-                        fig_ic = go.Figure()
-                        fig_ic.add_trace(go.Scatter(x=ic_df['date'], y=ic_df['IC'], name=f'{factor_name} IC', line=dict(color=color_palette[idx % len(color_palette)], width=2), mode='lines'))
-                        fig_ic.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
-                        ic_mean = ic_df['IC'].mean()
-                        ic_std = ic_df['IC'].std()
-                        fig_ic.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=f'{factor_name} IC 序列 (均值={ic_mean:.4f}, 标准差={ic_std:.4f})', font=dict(size=16, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(title=dict(text='IC', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color']))
-                        st.plotly_chart(fig_ic, width='stretch', config={'displayModeBar': False})
-                    ic_data = {name: df['IC'].describe().to_dict() for name, df in ic_results.items()}
-                    st.dataframe(pd.DataFrame(ic_data).round(4))
+                selected_ic_data = get_factor_ic(selected_ic_factors)
+                required_ic_columns = {'factor_name', 'date', 'ic'}
+                if not required_ic_columns.issubset(selected_ic_data.columns):
+                    st.warning("当前 IC 数据字段不完整，暂无法进行详细分析")
                 else:
-                    st.info("该日期范围暂无可用 IC 结果")
+                    selected_ic_data = selected_ic_data.dropna(subset=['date']).copy()
+                    available_ic_factors = [
+                        factor_name
+                        for factor_name in selected_ic_factors
+                        if (
+                            (selected_ic_data['factor_name'] == factor_name)
+                            & selected_ic_data['ic'].notna()
+                        ).any()
+                    ]
+                    unavailable_ic_factors = [
+                        factor_name
+                        for factor_name in selected_ic_factors
+                        if factor_name not in available_ic_factors
+                    ]
+                    if unavailable_ic_factors:
+                        st.info(
+                            "当前数据源暂无该因子的 IC 结果，已跳过。因子："
+                            + "、".join(unavailable_ic_factors)
+                        )
+                    if available_ic_factors:
+                        available_ic_data = selected_ic_data[
+                            selected_ic_data['factor_name'].isin(available_ic_factors)
+                        ]
+                        min_date = available_ic_data['date'].min().date()
+                        max_date = available_ic_data['date'].max().date()
+                        default_start = (max_date - timedelta(days=365)) if (max_date - timedelta(days=365)) >= min_date else min_date
+                        date_range = st.slider("选择分析日期区间", min_value=min_date, max_value=max_date, value=(default_start, max_date), key='ic_date_range')
+                        date_mask = available_ic_data['date'].dt.date.between(
+                            date_range[0], date_range[1]
+                        )
+                        visible_ic_data = available_ic_data[date_mask]
+                        ic_results = {}
+                        for factor_name in available_ic_factors:
+                            factor_data = visible_ic_data[
+                                visible_ic_data['factor_name'] == factor_name
+                            ]
+                            if factor_data['ic'].notna().any():
+                                ic_results[factor_name] = factor_data.rename(columns={'ic': 'IC'})
+                        if ic_results:
+                            color_palette = ['#6C63FF', '#2E86AB', '#E74C3C', '#F39C12', '#1ABC9C']
+                            for idx, (factor_name, ic_df) in enumerate(ic_results.items()):
+                                fig_ic = go.Figure()
+                                fig_ic.add_trace(go.Scatter(x=ic_df['date'], y=ic_df['IC'], name=f'{factor_name} IC', line=dict(color=color_palette[idx % len(color_palette)], width=2), mode='lines'))
+                                fig_ic.add_hline(y=0, line_dash='dot', line_color='rgba(128,128,128,0.5)')
+                                ic_mean = ic_df['IC'].mean()
+                                ic_std = ic_df['IC'].std()
+                                fig_ic.update_layout(height=300, plot_bgcolor=colors['plot_bg'], paper_bgcolor=colors['paper_bg'], font=dict(color=colors['font_color']), title=dict(text=f'{factor_name} IC 序列 (均值={ic_mean:.4f}, 标准差={ic_std:.4f})', font=dict(size=16, color=colors['font_color']), x=0.03, xanchor='left'), margin=dict(l=40, r=20, t=50, b=20), xaxis=dict(showgrid=True, gridcolor=colors['grid_color']), yaxis=dict(title=dict(text='IC', font=dict(color=colors['font_color'])), showgrid=True, gridcolor=colors['grid_color']))
+                                st.plotly_chart(fig_ic, width='stretch', config={'displayModeBar': False})
+                            ic_data = {name: df['IC'].describe().to_dict() for name, df in ic_results.items()}
+                            st.dataframe(pd.DataFrame(ic_data).round(4))
+                        else:
+                            st.info("该日期范围暂无可用 IC 结果")
             else:
                 st.info("请选择至少 1 个因子以开始 IC 分析")
         else:
